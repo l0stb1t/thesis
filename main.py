@@ -1,12 +1,16 @@
+import sys
+sys.path.insert(0, '/home/bit/project-posenet/')
+
 import cv2
 import time
 import argparse
-from operator import itemgetter
-from pose_engine import PoseEngine
+import pygame
 import numpy as np
+from pose_engine import PoseEngine
 from multiprocessing import sharedctypes
 import multiprocessing as mp
 from math import atan2, degrees, sqrt, pi
+from constants import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', help='.tflite model path.', required=False)
@@ -14,6 +18,7 @@ parser.add_argument('--cam_id', type=int, default=0)
 parser.add_argument('--mirror', help='flip video horizontally', action='store_true')
 parser.add_argument('--res', help='Resolution', default='640x480', choices=['480x360', '640x480', '1280x720'])
 parser.add_argument('--file', type=str, default=None, help="Optionally use a video file instead of a live camera")
+parser.add_argument('--ifile', type=str, default=None, help="Optionally use an image file instead of a live camera")
 args = parser.parse_args()
 
 default_model = 'models/posenet_mobilenet_v1_075_%d_%d_quant_decoder_edgetpu.tflite'
@@ -148,6 +153,9 @@ def check_pose(keypoint_coord, keypoint_score):
 def renderer():
 	global sharedmem, child_cnx
 
+	pygame.init()
+	display = pygame.display.set_mode(src_size)
+	
 	while (1):
 		if child_cnx.poll():
 			if child_cnx.recv() == 's':
@@ -156,15 +164,23 @@ def renderer():
 	frame_count = 0
 	start_time = time.time()
 	while (1):
+		if child_cnx.poll():
+			if child_cnx.recv() == 'q':
+				print ('Quit command from parent ')
+				break
 		frame_count += 1
 		frame = np.ctypeslib.as_array(sharedmem).copy()
-		cv2.imshow('frame', frame)
-		if cv2.waitKey(1) & 0xFF == ord('q'):
-			break
-		time.sleep(0.01)
+		surf = pygame.surfarray.make_surface(frame)
+
+		for event in pygame.event.get():
+			if event.type == pygame.QUIT:
+				break
+		display.blit(surf, (0, 0))
+		pygame.display.update()
 	end_time = time.time()
 	print (frame_count/(end_time - start_time))
 	child_cnx.send('q')
+	pygame.quit()
 
 def draw_pose(img, pose):
 	cv2_keypoints = []
@@ -198,34 +214,40 @@ def main():
 	cap.set(3, appsink_size[0])
 	cap.set(4, appsink_size[1])
 
+
 	frame_count = 0
 	start_time = time.time()
 	while True:
-		frame_count += 1
+		try:
+			frame_count += 1
 
-		prepare_input_time = time.monotonic()
-		cap_res, cap_frame = cap.read()
-		input_img = cv2.cvtColor(cap_frame, cv2.COLOR_BGR2RGB).astype(np.uint8)
-		prepare_input_time = time.monotonic() - prepare_input_time
+			prepare_input_time = time.monotonic()
+			cap_res, cap_frame = cap.read()
+			input_img = cv2.cvtColor(cap_frame, cv2.COLOR_BGR2RGB).astype(np.uint8)
+			prepare_input_time = time.monotonic() - prepare_input_time
 
-		decode_pose_time = time.monotonic()
-		outputs, inference_time = engine.DetectPosesInImage(input_img)
-		if len(outputs) == 0:
-			sharedmem[:] = np.ctypeslib.as_ctypes(cap_frame.copy())
-			continue
-		max_pose = max(outputs, key=lambda i: i.score)
-		out_img = draw_pose(cap_frame, max_pose)
-		decode_pose_time = time.monotonic() - decode_pose_time
-		
-		# write frame to memory
-		render_time = time.monotonic()
-		sharedmem[:] = np.ctypeslib.as_ctypes(out_img.copy())
-		if parent_cnx.poll():
-			if parent_cnx.recv() == 'q':
-				break
-		render_time = time.monotonic() - render_time
+			decode_pose_time = time.monotonic()
+			outputs, inference_time = engine.DetectPosesInImage(input_img)
+			if len(outputs) == 0:
+				sharedmem[:] = np.ctypeslib.as_ctypes(cap_frame.copy())
+				continue
+			max_pose = max(outputs, key=lambda i: i.score)
+			out_img = draw_pose(cap_frame, max_pose)
+			decode_pose_time = time.monotonic() - decode_pose_time
+			
+			# write frame to memory
+			render_time = time.monotonic()
+			sharedmem[:] = np.ctypeslib.as_ctypes(out_img.copy())
+			if parent_cnx.poll():
+				if parent_cnx.recv() == 'q':
+					break
+			render_time = time.monotonic() - render_time
 
-		print (prepare_input_time, decode_pose_time, render_time)
+			print (prepare_input_time, decode_pose_time, render_time)
+		except Exception as e:
+			print (e)
+			child_cnx.send('q')
+			break
 
 	end_time = time.time()
 	print (frame_count/(end_time - start_time))
