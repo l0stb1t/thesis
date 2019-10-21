@@ -46,7 +46,7 @@ def vertical_angle(A, B):
 def distance (A, B):
 	return np.linalg.norm(A-B)
 
-def check_pose(keypoint_coord, keypoint_score):
+def check_pose(keypoints):
 	if keypoint_score[-1] > 0.3:
 		neck = keypoint_coord[-1]
 	else:
@@ -150,8 +150,15 @@ def check_pose(keypoint_coord, keypoint_score):
 	return None
 
 
+def get_frame():
+    global sharedmem
+    
+    frame = np.ctypeslib.as_array(sharedmem).copy()
+    frame = np.rot90(frame)
+    return frame
+
 def renderer():
-	global sharedmem, child_cnx
+	global child_cnx
 
 	pygame.init()
 	display = pygame.display.set_mode(src_size)
@@ -163,22 +170,25 @@ def renderer():
 
 	frame_count = 0
 	start_time = time.time()
-	while (1):
+	running = True
+	while running:
 		if child_cnx.poll():
 			if child_cnx.recv() == 'q':
 				print ('Quit command from parent ')
-				break
+				running = False
 		frame_count += 1
-		frame = np.ctypeslib.as_array(sharedmem).copy()
+		
+		frame = get_frame()
 		surf = pygame.surfarray.make_surface(frame)
 
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
+				running = False
 				break
 		display.blit(surf, (0, 0))
 		pygame.display.update()
 	end_time = time.time()
-	print (frame_count/(end_time - start_time))
+	print ('Rendering FPS:', frame_count/(end_time - start_time))
 	child_cnx.send('q')
 	pygame.quit()
 
@@ -188,9 +198,9 @@ def draw_pose(img, pose):
 		keypoint = pose.keypoints[keypoint_name]
 		if (keypoint.score > 0.5):
 			cv2_keypoints.append(cv2.KeyPoint(keypoint.yx[1], keypoint.yx[0], 20.0*keypoint.score))
-	out_img = cv2.drawKeypoints(img, cv2_keypoints, outImage=np.array([]), color=(255, 0, 0))
+	out_img = cv2.drawKeypoints(img, cv2_keypoints, outImage=np.array([]), color=(0, 255, 0))
 	return out_img
-
+    
 def main():
 	global sharedmem, parent_cnx, child_cnx
 
@@ -221,36 +231,39 @@ def main():
 		try:
 			frame_count += 1
 
-			prepare_input_time = time.monotonic()
+			#prepare_input_time = time.monotonic()
 			cap_res, cap_frame = cap.read()
 			input_img = cv2.cvtColor(cap_frame, cv2.COLOR_BGR2RGB).astype(np.uint8)
-			prepare_input_time = time.monotonic() - prepare_input_time
+			#prepare_input_time = time.monotonic() - prepare_input_time
 
-			decode_pose_time = time.monotonic()
+			#decode_pose_time = time.monotonic()
 			outputs, inference_time = engine.DetectPosesInImage(input_img)
 			if len(outputs) == 0:
-				sharedmem[:] = np.ctypeslib.as_ctypes(cap_frame.copy())
+				sharedmem[:] = np.ctypeslib.as_ctypes(input_img.copy())
 				continue
-			max_pose = max(outputs, key=lambda i: i.score)
-			out_img = draw_pose(cap_frame, max_pose)
-			decode_pose_time = time.monotonic() - decode_pose_time
-			
+			output_img = input_img
+			for pose in outputs:
+				if pose.score > C_PSCORE_THRESHOLD:
+					#print (check_pose(pose))
+					out_img = draw_pose(output_img, pose)
+			#decode_pose_time = time.monotonic() - decode_pose_time
+	
 			# write frame to memory
-			render_time = time.monotonic()
-			sharedmem[:] = np.ctypeslib.as_ctypes(out_img.copy())
+			#render_time = time.monotonic()
+			sharedmem[:] = np.ctypeslib.as_ctypes(output_img.copy())
 			if parent_cnx.poll():
 				if parent_cnx.recv() == 'q':
 					break
-			render_time = time.monotonic() - render_time
+			#render_time = time.monotonic() - render_time
 
-			print (prepare_input_time, decode_pose_time, render_time)
+			#print (prepare_input_time, decode_pose_time, render_time)
 		except Exception as e:
 			print (e)
 			child_cnx.send('q')
 			break
 
 	end_time = time.time()
-	print (frame_count/(end_time - start_time))
+	print ('Processing FPS:', frame_count/(end_time - start_time))
 
 if __name__ == "__main__":
 	main()
