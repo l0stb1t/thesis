@@ -109,26 +109,25 @@ def check_pose(keypoint_coord, keypoint_score):
 			# Right ear and right hand on the same side
 				if vert_angle_right_arm:
 					if vert_angle_right_arm < -15:
-						return "RIGHT_ARM_UP_OPEN"
+						return C_RIGHT_ARM_UP_OPEN
 					if 15 < vert_angle_right_arm < 90:
-						return "RIGHT_ARM_UP_CLOSED"
+						return C_RIGHT_ARM_UP_CLOSED
 			elif (l_ear is not None) and shoulders_width and distance(r_wrist,l_ear) < shoulders_width/4:
 				# Right hand close to left ear
-				return "RIGHT_HAND_ON_LEFT_EAR"
+				return C_RIGHT_HAND_ON_LEFT_EAR
 		else:
 			# Both hands up
 			# Check if both hands are on the ears
 			if (r_ear is not None) and (l_ear is not None):
 				ear_dist = distance(r_ear,l_ear)
 				if distance(r_wrist,r_ear)<ear_dist/3 and distance(l_wrist,l_ear)<ear_dist/3:
-					return("HANDS_ON_EARS")
+					return C_HANDS_ON_EARS
 			# Check if boths hands are closed to each other and above ears 
 			# (check right hand is above right ear is enough since hands are closed to each other)
 			if shoulders_width and (r_ear is not None):
 				near_dist = shoulders_width/3
 				if r_ear[0] > r_wrist[0] and distance(r_wrist, l_wrist) < near_dist :
-					return "CLOSE_HANDS_UP"
-
+					return C_CLOSE_HANDS_UP
 	else:
 		if left_hand_up:
 			# Only left arm up
@@ -136,43 +135,109 @@ def check_pose(keypoint_coord, keypoint_score):
 				# Left ear and left hand on the same side
 				if vert_angle_left_arm:
 					if vert_angle_left_arm < -15:
-						return "LEFT_ARM_UP_CLOSED"
+						return C_LEFT_ARM_UP_CLOSED
 					if 15 < vert_angle_left_arm < 90:
-						return "LEFT_ARM_UP_OPEN"
+						return C_LEFT_ARM_UP_OPEN
 			elif (r_ear is not None) and shoulders_width and distance(l_wrist,r_ear) < shoulders_width/4:
 				# Left hand close to right ear
-				return "LEFT_HAND_ON_RIGHT_EAR"
+				return C_LEFT_HAND_ON_RIGHT_EAR
 		else:
 			# Both wrists under the neck
 			if (neck is not None) and (shoulders_width is not None) and (r_wrist is not None) and (l_wrist is not None):
 				near_dist = shoulders_width/3
 				if distance(r_wrist, neck) < near_dist and distance(l_wrist, neck) < near_dist :
-					return "HANDS_ON_NECK"
-
+					return C_HANDS_ON_NECK
 	return None
 
+def get_skps(kps_coord, kps_score):
+	r = (0,)*C_NKP
+	min_x = None
+	max_x = None
+	min_y = None	
+	max_y = None
+	
+	for i in range(C_NKP):
+		if kps_score[i] >= C_KP_THRESHOLD:
+			r[i] = kps_coord[i]
+			x = r[i][0]
+			y = r[i][1]
+			
+			if max_x is None or x > max_x:
+				max_x = x
+			if min_x is None or x < min_x:
+				min_x = x
+			if max_y is None or y > max_y:
+				max_y = y
+			if min_y is None or y < min_y:
+				min_y = y
+		else:
+			r[i] = None
+	return r, (min_x, min_y), (max_x, max_y)
 
-def get_frame():
+def get_pose_box(kps_coord, kps_score):
+	min_x = None
+	max_x = None
+	min_y = None	
+	max_y = None
+	
+	for i in range(C_NKP):
+		if kps_score[i] >= C_KP_THRESHOLD:
+			x = kps_coord[i][0]
+			y = kps_coord[i][1]
+			
+			if max_x is None or x > max_x:
+				max_x = x
+			if min_x is None or x < min_x:
+				min_x = x
+			if max_y is None or y > max_y:
+				max_y = y
+			if min_y is None or y < min_y:
+				min_y = y
+	
+	return (np.array((min_x, min_y)), np.array((max_x, max_y)))
+	
+def get_surf():
     global FRAMEBUFFER
     
     frame = np.ctypeslib.as_array(FRAMEBUFFER).copy()
-    frame = np.rot90(frame)
-    return frame
+    surf = pygame.surfarray.make_surface(frame)
+    return surf
 
-def round_kp(kp):
-	return kp.astype(np.uint8)
-
-def draw_pose(surf, kps_coord, kps_score):
+def draw_pose(surf, kps_coord, kps_score, color):
 	for i in range(18):
 		if kps_score[i] >= C_KP_THRESHOLD:
-			pygame.draw.circle(surf, C_RED, round_kp(kps_coord[i]), 3)
-	return surf
+			pygame.draw.circle(surf, color, kps_coord[i].astype(np.uint32), 3)
 
-def renderer():
+def draw_bound_box(surf, kps_coord, kps_score):
+	top, bottom = get_pose_box(kps_coord, kps_score)
+	pygame.draw.circle(surf, C_RED, top.astype(np.uint32), 3)
+	pygame.draw.circle(surf, C_RED, bottom.astype(np.uint32), 3)
+	pygame.draw.rect(surf, C_GREEN, (top[0], top[1], bottom[0]-top[0], bottom[1]-top[1]), 3)
+	return top, bottom
+				
+def renderer(lock):
 	global RUNNING
 	global NPOSES, FRAMEBUFFER, KP_BUFFER, SCORE_BUFFER, POSESCORE_BUFFER
 
 	pygame.init()
+	pygame.font.init()
+	myfont = pygame.font.SysFont(None, 20)
+	
+	LABELS = [None,]*10
+	
+	POSE_TEXTS = [None,] * 9
+	POSE_TEXTS[C_RIGHT_ARM_UP_OPEN] 			= myfont.render('RIGHT_ARM_UP_OPEN', False, C_RED, None)
+	POSE_TEXTS[C_RIGHT_ARM_UP_CLOSED] 		= myfont.render('RIGHT_ARM_UP_CLOSED', False, C_RED, None)
+	POSE_TEXTS[C_RIGHT_HAND_ON_LEFT_EAR] 	= myfont.render('RIGHT_HAND_ON_LEFT_EAR', False, C_RED, None)
+	
+	POSE_TEXTS[C_LEFT_ARM_UP_OPEN] 			= myfont.render('LEFT_ARM_UP_OPEN', False, C_RED, None)
+	POSE_TEXTS[C_LEFT_ARM_UP_CLOSED] 		= myfont.render('LEFT_ARM_UP_CLOSED', False, C_RED, None)
+	POSE_TEXTS[C_LEFT_HAND_ON_RIGHT_EAR] 	= myfont.render('C_LEFT_HAND_ON_RIGHT_EAR', False, C_RED, None)
+	
+	POSE_TEXTS[C_HANDS_ON_EARS] 				= myfont.render('HANDS_ON_EARS', False, C_RED, None)
+	POSE_TEXTS[C_CLOSE_HANDS_UP] 				= myfont.render('CLOSE_HANDS_UP', False, C_RED, None)
+	POSE_TEXTS[C_HANDS_ON_NECK] 				= myfont.render('HANDS_ON_NECK', False, C_RED, None)
+		
 	display = pygame.display.set_mode(appsink_size)
 	
 	frame_count = 0
@@ -181,29 +246,51 @@ def renderer():
 	while RUNNING:
 		frame_count += 1
 		
-		frame = get_frame()
-		surf = pygame.surfarray.make_surface(frame)
-		
+		surf = get_surf()
+		lock.acquire()
 		nposes = NPOSES.value
 		if nposes:
 			kps_coords 	= np.ctypeslib.as_array(KP_BUFFER).copy()
 			kps_scores 	= np.ctypeslib.as_array(SCORE_BUFFER).copy()
 			pose_scores = np.ctypeslib.as_array(POSESCORE_BUFFER).copy()
+			lock.release()
 			
 			for i in range(nposes):
 				if pose_scores[i] >= C_PSCORE_THRESHOLD:
 					kps_coord = kps_coords[i]
 					kps_score = kps_scores[i]
-					#pygame.draw.circle(surf, C_RED, (10, 10), 3)
-					#draw_pose(surf, kps_coord, kps_score)
+						
+					#color = C_COLORS[i % 3]
+					draw_pose(surf, kps_coord, kps_score, C_YELLOW)
 					
+					top, bottom = draw_bound_box(surf, kps_coord, kps_score)
+					pose = check_pose(kps_coord, kps_score)
+					if pose is not None:
+						LABELS[i] = (POSE_TEXTS[pose], (top[1], top[0]))
+					else:
+						LABELS[i] = None
+					'''
+					print (pose)
+					if pose == C_LEFT_ARM_UP_OPEN or pose == C_LEFT_ARM_UP_CLOSED:
+						pygame.draw.circle(surf, C_RED, kps_coord[C_LWRIST].astype(np.uint32), 10)
+					if pose == C_RIGHT_ARM_UP_OPEN or pose == C_RIGHT_ARM_UP_CLOSED:
+						pygame.draw.circle(surf, C_GREEN, kps_coord[C_RWRIST].astype(np.uint32), 10)
+					'''
+		else:
+			lock.release()
 			
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
 				RUNNING.value = 0
 				break
+		surf = pygame.transform.rotate(surf, -90)
+		surf = pygame.transform.flip(surf, True, False)		
 		display.blit(surf, (0, 0))
+		for i in range(nposes):
+			if LABELS[i]:
+				display.blit(LABELS[i][0], LABELS[i][1])
 		pygame.display.update()
+		pygame.time.delay(15)
 	end_time = time.time()
 	print ('Rendering FPS:', frame_count/(end_time - start_time))
 	pygame.quit()
@@ -228,33 +315,34 @@ def pose_worker():
 					t = check_pose(kps_coords[i], kps_scores[i])
 					if t:
 						print (t)
-					
+					pygame.time.delay(30)
 def main():
 	global RUNNING
 	global NPOSES, FRAMEBUFFER, KP_BUFFER, SCORE_BUFFER, POSESCORE_BUFFER
 
 	frame 			= np.zeros((appsink_size[1], appsink_size[0], 3) , dtype=np.uint8)
-	t 				= np.ctypeslib.as_ctypes(frame)
+	t 					= np.ctypeslib.as_ctypes(frame)
 	FRAMEBUFFER 	= sharedctypes.RawArray(t._type_, (t))
 	
 	kp_buffer 		= np.zeros((C_MAXPOSE, C_NKP, 2) , dtype=np.float64)
-	t 				= np.ctypeslib.as_ctypes(kp_buffer)
+	t 					= np.ctypeslib.as_ctypes(kp_buffer)
 	KP_BUFFER		= sharedctypes.RawArray(t._type_, (t))
 	
 	score_buffer 	= np.zeros((C_MAXPOSE, C_NKP) , dtype=np.float64)
-	t 				= np.ctypeslib.as_ctypes(score_buffer)
+	t 					= np.ctypeslib.as_ctypes(score_buffer)
 	SCORE_BUFFER	= sharedctypes.RawArray(t._type_, (t))
 	
 	posescore_buffer 	= np.zeros((C_MAXPOSE,) , dtype=np.float64)
-	t 					= np.ctypeslib.as_ctypes(posescore_buffer)
+	t 						= np.ctypeslib.as_ctypes(posescore_buffer)
 	POSESCORE_BUFFER	= sharedctypes.RawArray(t._type_, (t))
 	
 	NPOSES 			= sharedctypes.RawValue(ctypes.c_ushort)
 	RUNNING			= sharedctypes.RawValue(ctypes.c_ubyte, 1)
 
-	p_renderer = mp.Process(target=renderer)
+	lock = mp.Lock()
+	p_renderer = mp.Process(target=renderer, args=(lock, ))
 	p_pose_worker = mp.Process(target=pose_worker)
-	p_pose_worker.start()
+	#p_pose_worker.start()
 	p_renderer.start()
 	#signal child process to start
 
@@ -275,13 +363,14 @@ def main():
 			input_img = cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB).astype(np.uint8)
 			nposes, pose_scores, kps, kps_score = engine.DetectPosesInImage(input_img)
 
-			# print (kps)
+			lock.acquire()
 			FRAMEBUFFER[:] 					= np.ctypeslib.as_ctypes(input_img)
 			if nposes:
 				NPOSES.value = nposes
 				KP_BUFFER[:nposes] 			= np.ctypeslib.as_ctypes(kps)
 				SCORE_BUFFER[:nposes] 		= np.ctypeslib.as_ctypes(kps_score)
-				POSESCORE_BUFFER[:] 		= np.ctypeslib.as_ctypes(pose_scores)
+				POSESCORE_BUFFER[:] 			= np.ctypeslib.as_ctypes(pose_scores)
+			lock.release()
 
 		except:
 			traceback.print_exc()
