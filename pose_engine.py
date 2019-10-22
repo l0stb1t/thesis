@@ -25,6 +25,8 @@ from edgetpu.basic.basic_engine import BasicEngine
 from edgetpu.utils import image_processing
 from PIL import Image
 
+from constants import *
+
 KEYPOINTS = (
   'nose',
   'left eye',
@@ -131,9 +133,27 @@ class PoseEngine(BasicEngine):
 		pose_scores = outputs[2]
 		nposes = int(outputs[3][0])
 		assert nposes < outputs[0].shape[0]
+		
+		r_keypoints = np.zeros((nposes, C_NKP, 2))
+		r_keypoint_scores = np.zeros((nposes, C_NKP))
+		
+		for i in range(nposes):
+			keypoint = keypoints[i]
+			keypoint_score = keypoint_scores[i]
+			neck = (keypoint[C_LSHOULDER] + keypoint[C_RSHOULDER])/2
+			neck_score = (keypoint_score[C_LSHOULDER] + keypoint_score[C_RSHOULDER])/2
+			
+			
+			r_keypoints[i][0:-1] = keypoint
+			r_keypoint_scores[i][0:-1] = keypoint_score
+			
+			r_keypoints[i][-1] = neck
+			r_keypoint_scores[i][-1] = neck_score
+		return (nposes, pose_scores, r_keypoints, r_keypoint_scores)
 
 		# Convert the poses to a friendlier format of keypoints with associated
 		# scores.
+		'''
 		poses = []
 		for pose_i in range(nposes):
 			keypoint_dict = {}
@@ -142,10 +162,10 @@ class PoseEngine(BasicEngine):
 									keypoint_scores[pose_i, point_i])
 				if self._mirror: keypoint.yx[1] = self.image_width - keypoint.yx[1]
 				keypoint_dict[KEYPOINTS[point_i]] = keypoint
-			'''PATCH: add neck '''
+			#PATCH: add neck 
 			l_shoulder = keypoint_dict['left shoulder']
 			r_shoulder = keypoint_dict['right shoulder']
 			keypoint_dict['neck'] = Keypoint('neck', (l_shoulder.yx + r_shoulder.yx)/2, (l_shoulder.score + r_shoulder.score)/2)
 			poses.append(Pose(keypoint_dict, pose_scores[pose_i]))
-
 		return poses, inference_time
+		'''

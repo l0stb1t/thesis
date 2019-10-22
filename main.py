@@ -3,12 +3,14 @@ sys.path.insert(0, '/home/bit/project-posenet/')
 
 import cv2
 import time
-import argparse
+import ctypes
 import pygame
+import argparse
+import traceback
 import numpy as np
+import multiprocessing as mp
 from pose_engine import PoseEngine
 from multiprocessing import sharedctypes
-import multiprocessing as mp
 from math import atan2, degrees, sqrt, pi
 from constants import *
 
@@ -16,7 +18,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--model', help='.tflite model path.', required=False)
 parser.add_argument('--cam_id', type=int, default=0)
 parser.add_argument('--mirror', help='flip video horizontally', action='store_true')
-parser.add_argument('--res', help='Resolution', default='640x480', choices=['480x360', '640x480', '1280x720'])
+parser.add_argument('--res', help='Resolution', default='480x360', choices=['480x360', '640x480', '1280x720'])
 parser.add_argument('--file', type=str, default=None, help="Optionally use a video file instead of a live camera")
 parser.add_argument('--ifile', type=str, default=None, help="Optionally use an image file instead of a live camera")
 args = parser.parse_args()
@@ -46,48 +48,48 @@ def vertical_angle(A, B):
 def distance (A, B):
 	return np.linalg.norm(A-B)
 
-def check_pose(keypoints):
-	if keypoint_score[-1] > 0.3:
+def check_pose(keypoint_coord, keypoint_score):
+	if keypoint_score[-1] > C_KP_THRESHOLD:
 		neck = keypoint_coord[-1]
 	else:
 		neck = None
 
-	if keypoint_score[10] > 0.3:
+	if keypoint_score[10] > C_KP_THRESHOLD:
 		r_wrist = keypoint_coord[10]
 	else:
 		r_wrist = None
 
-	if keypoint_score[9] > 0.3:
+	if keypoint_score[9] > C_KP_THRESHOLD:
 		l_wrist = keypoint_coord[9]
 	else:
 		l_wrist = None
 
-	if keypoint_score[8] > 0.3:
+	if keypoint_score[8] > C_KP_THRESHOLD:
 		r_elbow = keypoint_coord[8]
 	else:
 		r_elbow = None
 
-	if keypoint_score[7] > 0.3:
+	if keypoint_score[7] > C_KP_THRESHOLD:
 		l_elbow = keypoint_coord[7]
 	else:
 		l_elbow = None
 
-	if keypoint_score[6] > 0.3:
+	if keypoint_score[6] > C_KP_THRESHOLD:
 		r_shoulder = keypoint_coord[6]
 	else:
 		r_shoulder = None
 
-	if keypoint_score[5] > 0.3:
+	if keypoint_score[5] > C_KP_THRESHOLD:
 		l_shoulder = keypoint_coord[5]
 	else:
 		l_shoulder = None
 
-	if keypoint_score[4] > 0.3:
+	if keypoint_score[4] > C_KP_THRESHOLD:
 		r_ear = keypoint_coord[4]
 	else:
 		r_ear = None
 
-	if keypoint_score[3] > 0.3:
+	if keypoint_score[3] > C_KP_THRESHOLD:
 		l_ear = keypoint_coord[3]
 	else:
 		l_ear = None
@@ -96,7 +98,7 @@ def check_pose(keypoints):
 
 	vert_angle_right_arm = vertical_angle(r_wrist, r_elbow)
 	vert_angle_left_arm = vertical_angle(l_wrist, l_elbow)
-
+	
 	left_hand_up = (neck is not None) and (l_wrist is not None) and l_wrist[0] < neck[0]
 	right_hand_up = (neck is not None) and (r_wrist is not None)  and r_wrist[0] < neck[0]
 	#print (left_hand_up, right_hand_up)
@@ -151,115 +153,139 @@ def check_pose(keypoints):
 
 
 def get_frame():
-    global sharedmem
+    global FRAMEBUFFER
     
-    frame = np.ctypeslib.as_array(sharedmem).copy()
+    frame = np.ctypeslib.as_array(FRAMEBUFFER).copy()
     frame = np.rot90(frame)
     return frame
 
+def round_kp(kp):
+	return kp.astype(np.uint8)
+
+def draw_pose(surf, kps_coord, kps_score):
+	for i in range(18):
+		if kps_score[i] >= C_KP_THRESHOLD:
+			pygame.draw.circle(surf, C_RED, round_kp(kps_coord[i]), 3)
+	return surf
+
 def renderer():
-	global child_cnx
+	global RUNNING
+	global NPOSES, FRAMEBUFFER, KP_BUFFER, SCORE_BUFFER, POSESCORE_BUFFER
 
 	pygame.init()
-	display = pygame.display.set_mode(src_size)
+	display = pygame.display.set_mode(appsink_size)
 	
-	while (1):
-		if child_cnx.poll():
-			if child_cnx.recv() == 's':
-				break
-
 	frame_count = 0
 	start_time = time.time()
 	running = True
-	while running:
-		if child_cnx.poll():
-			if child_cnx.recv() == 'q':
-				print ('Quit command from parent ')
-				running = False
+	while RUNNING:
 		frame_count += 1
 		
 		frame = get_frame()
 		surf = pygame.surfarray.make_surface(frame)
-
+		
+		nposes = NPOSES.value
+		if nposes:
+			kps_coords 	= np.ctypeslib.as_array(KP_BUFFER).copy()
+			kps_scores 	= np.ctypeslib.as_array(SCORE_BUFFER).copy()
+			pose_scores = np.ctypeslib.as_array(POSESCORE_BUFFER).copy()
+			
+			for i in range(nposes):
+				if pose_scores[i] >= C_PSCORE_THRESHOLD:
+					kps_coord = kps_coords[i]
+					kps_score = kps_scores[i]
+					#pygame.draw.circle(surf, C_RED, (10, 10), 3)
+					#draw_pose(surf, kps_coord, kps_score)
+					
+			
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
-				running = False
+				RUNNING.value = 0
 				break
 		display.blit(surf, (0, 0))
 		pygame.display.update()
 	end_time = time.time()
 	print ('Rendering FPS:', frame_count/(end_time - start_time))
-	child_cnx.send('q')
 	pygame.quit()
 
-def draw_pose(img, pose):
-	cv2_keypoints = []
-	for keypoint_name in pose.keypoints:
-		keypoint = pose.keypoints[keypoint_name]
-		if (keypoint.score > 0.5):
-			cv2_keypoints.append(cv2.KeyPoint(keypoint.yx[1], keypoint.yx[0], 20.0*keypoint.score))
-	out_img = cv2.drawKeypoints(img, cv2_keypoints, outImage=np.array([]), color=(0, 255, 0))
-	return out_img
-    
+def pose_worker():
+	global RUNNING
+	global NPOSES, FRAMEBUFFER, KP_BUFFER, SCORE_BUFFER, POSESCORE_BUFFER
+	
+	while RUNNING:
+		nposes = NPOSES.value
+		if nposes:
+			kps_coords 	= np.ctypeslib.as_array(KP_BUFFER)
+			kps_scores 	= np.ctypeslib.as_array(SCORE_BUFFER)
+			pose_scores = np.ctypeslib.as_array(POSESCORE_BUFFER)
+		
+			for i in range(nposes):
+				if pose_scores[i] >= C_PSCORE_THRESHOLD:
+					kps_coords 	= np.ctypeslib.as_array(KP_BUFFER).copy()
+					kps_scores 	= np.ctypeslib.as_array(SCORE_BUFFER).copy()
+					pose_scores = np.ctypeslib.as_array(POSESCORE_BUFFER).copy()
+					
+					t = check_pose(kps_coords[i], kps_scores[i])
+					if t:
+						print (t)
+					
 def main():
-	global sharedmem, parent_cnx, child_cnx
+	global RUNNING
+	global NPOSES, FRAMEBUFFER, KP_BUFFER, SCORE_BUFFER, POSESCORE_BUFFER
 
-	frame = np.zeros((appsink_size[1], appsink_size[0], 3) , dtype=np.uint8)
-	ctype_frame = np.ctypeslib.as_ctypes(frame)
-	sharedmem = sharedctypes.RawArray(ctype_frame._type_, (ctype_frame))
-
-	#create child process
-	parent_cnx, child_cnx = mp.Pipe()
+	frame 			= np.zeros((appsink_size[1], appsink_size[0], 3) , dtype=np.uint8)
+	t 				= np.ctypeslib.as_ctypes(frame)
+	FRAMEBUFFER 	= sharedctypes.RawArray(t._type_, (t))
+	
+	kp_buffer 		= np.zeros((C_MAXPOSE, C_NKP, 2) , dtype=np.float64)
+	t 				= np.ctypeslib.as_ctypes(kp_buffer)
+	KP_BUFFER		= sharedctypes.RawArray(t._type_, (t))
+	
+	score_buffer 	= np.zeros((C_MAXPOSE, C_NKP) , dtype=np.float64)
+	t 				= np.ctypeslib.as_ctypes(score_buffer)
+	SCORE_BUFFER	= sharedctypes.RawArray(t._type_, (t))
+	
+	posescore_buffer 	= np.zeros((C_MAXPOSE,) , dtype=np.float64)
+	t 					= np.ctypeslib.as_ctypes(posescore_buffer)
+	POSESCORE_BUFFER	= sharedctypes.RawArray(t._type_, (t))
+	
+	NPOSES 			= sharedctypes.RawValue(ctypes.c_ushort)
+	RUNNING			= sharedctypes.RawValue(ctypes.c_ubyte, 1)
 
 	p_renderer = mp.Process(target=renderer)
+	p_pose_worker = mp.Process(target=pose_worker)
+	p_pose_worker.start()
 	p_renderer.start()
 	#signal child process to start
-	parent_cnx.send('s')
 
 	if args.file is not None:
 		cap = cv2.VideoCapture(args.file)
 	else:
 		cap = cv2.VideoCapture(args.cam_id)
-
-	cap.set(3, appsink_size[0])
-	cap.set(4, appsink_size[1])
-
+		cap.set(cv2.CAP_PROP_FRAME_WIDTH, src_size[0])
+		cap.set(cv2.CAP_PROP_FRAME_HEIGHT, src_size[1])
 
 	frame_count = 0
 	start_time = time.time()
-	while True:
+	while RUNNING:
 		try:
 			frame_count += 1
-
-			#prepare_input_time = time.monotonic()
 			cap_res, cap_frame = cap.read()
-			input_img = cv2.cvtColor(cap_frame, cv2.COLOR_BGR2RGB).astype(np.uint8)
-			#prepare_input_time = time.monotonic() - prepare_input_time
+			input_img = cv2.resize(cap_frame, appsink_size, cv2.INTER_NEAREST)
+			input_img = cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB).astype(np.uint8)
+			nposes, pose_scores, kps, kps_score = engine.DetectPosesInImage(input_img)
 
-			#decode_pose_time = time.monotonic()
-			outputs, inference_time = engine.DetectPosesInImage(input_img)
-			if len(outputs) == 0:
-				sharedmem[:] = np.ctypeslib.as_ctypes(input_img.copy())
-				continue
-			output_img = input_img
-			for pose in outputs:
-				if pose.score > C_PSCORE_THRESHOLD:
-					#print (check_pose(pose))
-					out_img = draw_pose(output_img, pose)
-			#decode_pose_time = time.monotonic() - decode_pose_time
-	
-			# write frame to memory
-			#render_time = time.monotonic()
-			sharedmem[:] = np.ctypeslib.as_ctypes(output_img.copy())
-			if parent_cnx.poll():
-				if parent_cnx.recv() == 'q':
-					break
-			#render_time = time.monotonic() - render_time
+			# print (kps)
+			FRAMEBUFFER[:] 					= np.ctypeslib.as_ctypes(input_img)
+			if nposes:
+				NPOSES.value = nposes
+				KP_BUFFER[:nposes] 			= np.ctypeslib.as_ctypes(kps)
+				SCORE_BUFFER[:nposes] 		= np.ctypeslib.as_ctypes(kps_score)
+				POSESCORE_BUFFER[:] 		= np.ctypeslib.as_ctypes(pose_scores)
 
-			#print (prepare_input_time, decode_pose_time, render_time)
-		except Exception as e:
-			print (e)
-			child_cnx.send('q')
+		except:
+			traceback.print_exc()
+			RUNNING.value = 0
 			break
 
 	end_time = time.time()
