@@ -14,6 +14,8 @@ class PN:
 			max_idx = np.argmax(pose_scores[:nposes])
 			self.kps_coord = kps_coords[max_idx]
 			self.kps_score = kps_scores[max_idx]
+			
+			self.shoulders_width = np.linalg.norm(self.kps_coord[C_LSHOULDER] - self.kps_coord[C_RSHOULDER])
 		return nposes
 		
 	def get_body_kp(self, kp_id):

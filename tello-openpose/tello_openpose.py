@@ -32,7 +32,8 @@ import re
 
 from PN import *
 log = logging.getLogger("TellOpenpose")
-
+log.setLevel(logging.CRITICAL)
+logging.getLogger('Tello').setLevel(logging.CRITICAL)
 
 def distance (A, B):
 	"""
@@ -167,12 +168,8 @@ def main(use_multiprocessing=False, log_level=None):
 		else:
 		'''
 		frame = tello.process_frame(frame)
-		# tello.sound_player.play()
-
-		'''if not use_multiprocessing: tello.fps.update()'''
 		tello.fps.update()
 
-		# Display the frame
 		cv2.imshow('Tello', frame)
 		cv2.waitKey(1)
 		frame_skip = int((time.time() - start_time)/time_base)
@@ -189,12 +186,11 @@ class TelloController(object):
 				write_log_data=False, 
 				media_directory="media", 
 				child_cnx=None,
-				log_level=None):
+				log_level=logging.CRITICAL):
 		
 		self.log_level = log_level
 		self.debug = log_level is not None
 		self.child_cnx = child_cnx
-		self.use_multiprocessing = child_cnx is not None
 		self.kbd_layout = kbd_layout
 		# Flight data
 		self.is_flying = False
@@ -207,16 +203,33 @@ class TelloController(object):
 		self.keydown = False
 		self.date_fmt = '%Y-%m-%d_%H%M%S'
 		self.drone = tellopy.Tello()
+		'''
 		self.axis_command = {
 			"yaw": self.drone.clockwise,
 			"roll": self.drone.right,
 			"pitch": self.drone.forward,
 			"throttle": self.drone.up
 		}
-		self.axis_speed = { "yaw":0, "roll":0, "pitch":0, "throttle":0}
-		self.cmd_axis_speed = { "yaw":0, "roll":0, "pitch":0, "throttle":0}
-		self.prev_axis_speed = self.axis_speed.copy()
-		self.def_speed =  { "yaw":50, "roll":35, "pitch":35, "throttle":80}	 
+		'''
+		self.axis_command = np.zeros(4, dtype=np.object)
+		self.axis_command[C_YAW] = self.drone.clockwise
+		self.axis_command[C_ROLL] = self.drone.right
+		self.axis_command[C_PITCH] = self.drone.forward
+		self.axis_command[C_THROTTLE] = self.drone.up
+		
+		#self.axis_speed = { "yaw":0, "roll":0, "pitch":0, "throttle":0}
+		#self.cmd_axis_speed = { "yaw":0, "roll":0, "pitch":0, "throttle":0}
+		#self.prev_axis_speed = self.axis_speed.copy()
+		#self.def_speed =  { "yaw":50, "roll":35, "pitch":35, "throttle":80}
+		
+		self.axis_speed 		= np.zeros(4, dtype=np.int32)
+		self.cmd_axis_speed 	= np.zeros(4, dtype=np.int32)	 
+		self.prev_axis_speed 	= self.axis_speed.copy()
+		self.def_speed 			= np.zeros(4, dtype=np.int32)
+		self.def_speed[C_YAW] = 50
+		self.def_speed[C_ROLL] = 35
+		self.def_speed[C_PITCH] = 35
+		self.def_speed[C_THROTTLE] = 80
 		
 		self.write_log_data = write_log_data
 		self.reset()
@@ -230,9 +243,7 @@ class TelloController(object):
 			self.write_header = True
 
 		self.init_drone()
-		if not self.use_multiprocessing:
-			self.init_sounds()
-			self.init_controls()
+		self.init_controls()
 		
 
 		# container for processing the packets into frames
@@ -245,11 +256,9 @@ class TelloController(object):
 
 				
 		# Setup Openpose
-		if not self.use_multiprocessing:
-			self.op = PN()
+		self.op = PN()
 		self.use_openpose = False
-				
-			 
+			
 		self.morse = CameraMorse(display=False)
 		self.morse.define_command("---", self.delayed_takeoff)
 		self.morse.define_command("...", self.throw_and_go, {'tracking':True})
@@ -328,6 +337,7 @@ class TelloController(object):
 							 self.handle_flight_received)
 
 	def init_sounds(self):
+		return 
 		self.sound_player = SoundPlayer(debug=self.debug)
 		self.sound_player.load("approaching", "sounds/approaching.ogg")
 		self.sound_player.load("keeping distance", "sounds/keeping_distance.ogg")
@@ -373,7 +383,7 @@ class TelloController(object):
 			key_handler = self.controls_keyrelease[keyname]()
 	
 	def set_speed(self, axis, speed):
-		log.info(f"set speed {axis} {speed}")
+		#log.info(f"set speed {axis} {speed}")
 		self.cmd_axis_speed[axis] = speed
 
 	def init_controls(self):
@@ -382,20 +392,20 @@ class TelloController(object):
 		"""
 
 		controls_keypress_QWERTY = {
-			'w': lambda: self.set_speed("pitch", self.def_speed["pitch"]),
-			's': lambda: self.set_speed("pitch", -self.def_speed["pitch"]),
-			'a': lambda: self.set_speed("roll", -self.def_speed["roll"]),
-			'd': lambda: self.set_speed("roll", self.def_speed["roll"]),
-			'q': lambda: self.set_speed("yaw", -self.def_speed["yaw"]),
-			'e': lambda: self.set_speed("yaw", self.def_speed["yaw"]),
+			'w': lambda: self.set_speed(C_PITCH, self.def_speed[C_PITCH]),
+			's': lambda: self.set_speed(C_PITCH, -self.def_speed[C_PITCH]),
+			'a': lambda: self.set_speed(C_ROLL, -self.def_speed[C_ROLL]),
+			'd': lambda: self.set_speed(C_ROLL, self.def_speed[C_ROLL]),
+			'q': lambda: self.set_speed(C_YAW, -self.def_speed[C_YAW]),
+			'e': lambda: self.set_speed(C_YAW, self.def_speed[C_YAW]),
 			'i': lambda: self.drone.flip_forward(),
 			'k': lambda: self.drone.flip_back(),
 			'j': lambda: self.drone.flip_left(),
 			'l': lambda: self.drone.flip_right(),
-			'Key.left': lambda: self.set_speed("yaw", -1.5*self.def_speed["yaw"]),
-			'Key.right': lambda: self.set_speed("yaw", 1.5*self.def_speed["yaw"]),
-			'Key.up': lambda: self.set_speed("throttle", self.def_speed["throttle"]),
-			'Key.down': lambda: self.set_speed("throttle", -self.def_speed["throttle"]),
+			'Key.left': lambda: self.set_speed(C_YAW, -1.5*self.def_speed[C_YAW]),
+			'Key.right': lambda: self.set_speed(C_YAW, 1.5*self.def_speed[C_YAW]),
+			'Key.up': lambda: self.set_speed(C_THROTTLE, self.def_speed[C_THROTTLE]),
+			'Key.down': lambda: self.set_speed(C_THROTTLE, -self.def_speed[C_THROTTLE]),
 			'Key.tab': lambda: self.drone.takeoff(),
 			'Key.backspace': lambda: self.drone.land(),
 			'p': lambda: self.palm_land(),
@@ -416,33 +426,33 @@ class TelloController(object):
 		}
 
 		controls_keyrelease_QWERTY = {
-			'w': lambda: self.set_speed("pitch", 0),
-			's': lambda: self.set_speed("pitch", 0),
-			'a': lambda: self.set_speed("roll", 0),
-			'd': lambda: self.set_speed("roll", 0),
-			'q': lambda: self.set_speed("yaw", 0),
-			'e': lambda: self.set_speed("yaw", 0),
-			'Key.left': lambda: self.set_speed("yaw", 0),
-			'Key.right': lambda: self.set_speed("yaw", 0),
-			'Key.up': lambda: self.set_speed("throttle", 0),
-			'Key.down': lambda: self.set_speed("throttle", 0)
+			'w': lambda: self.set_speed(C_PITCH, 0),
+			's': lambda: self.set_speed(C_PITCH, 0),
+			'a': lambda: self.set_speed(C_ROLL, 0),
+			'd': lambda: self.set_speed(C_ROLL, 0),
+			'q': lambda: self.set_speed(C_YAW, 0),
+			'e': lambda: self.set_speed(C_YAW, 0),
+			'Key.left': lambda: self.set_speed(C_YAW, 0),
+			'Key.right': lambda: self.set_speed(C_YAW, 0),
+			'Key.up': lambda: self.set_speed(C_THROTTLE, 0),
+			'Key.down': lambda: self.set_speed(C_THROTTLE, 0)
 		}
 
 		controls_keypress_AZERTY = {
-			'z': lambda: self.set_speed("pitch", self.def_speed["pitch"]),
-			's': lambda: self.set_speed("pitch", -self.def_speed["pitch"]),
-			'q': lambda: self.set_speed("roll", -self.def_speed["roll"]),
-			'd': lambda: self.set_speed("roll", self.def_speed["roll"]),
-			'a': lambda: self.set_speed("yaw", -self.def_speed["yaw"]),
-			'e': lambda: self.set_speed("yaw", self.def_speed["yaw"]),
+			'z': lambda: self.set_speed(C_PITCH, self.def_speed[C_PITCH]),
+			's': lambda: self.set_speed(C_PITCH, -self.def_speed[C_PITCH]),
+			'q': lambda: self.set_speed(C_ROLL, -self.def_speed[C_ROLL]),
+			'd': lambda: self.set_speed(C_ROLL, self.def_speed[C_ROLL]),
+			'a': lambda: self.set_speed(C_YAW, -self.def_speed[C_YAW]),
+			'e': lambda: self.set_speed(C_YAW, self.def_speed[C_YAW]),
 			'i': lambda: self.drone.flip_forward(),
 			'k': lambda: self.drone.flip_back(),
 			'j': lambda: self.drone.flip_left(),
 			'l': lambda: self.drone.flip_right(),
-			'Key.left': lambda: self.set_speed("yaw", -1.5*self.def_speed["yaw"]),
-			'Key.right': lambda: self.set_speed("yaw", 1.5*self.def_speed["yaw"]),
-			'Key.up': lambda: self.set_speed("throttle", self.def_speed["throttle"]),
-			'Key.down': lambda: self.set_speed("throttle", -self.def_speed["throttle"]),
+			'Key.left': lambda: self.set_speed(C_YAW, -1.5*self.def_speed[C_YAW]),
+			'Key.right': lambda: self.set_speed(C_YAW, 1.5*self.def_speed[C_YAW]),
+			'Key.up': lambda: self.set_speed(C_THROTTLE, self.def_speed[C_THROTTLE]),
+			'Key.down': lambda: self.set_speed(C_THROTTLE, -self.def_speed[C_THROTTLE]),
 			'Key.tab': lambda: self.drone.takeoff(),
 			'Key.backspace': lambda: self.drone.land(),
 			'p': lambda: self.palm_land(),
@@ -463,16 +473,16 @@ class TelloController(object):
 		}
 
 		controls_keyrelease_AZERTY = {
-			'z': lambda: self.set_speed("pitch", 0),
-			's': lambda: self.set_speed("pitch", 0),
-			'q': lambda: self.set_speed("roll", 0),
-			'd': lambda: self.set_speed("roll", 0),
-			'a': lambda: self.set_speed("yaw", 0),
-			'e': lambda: self.set_speed("yaw", 0),
-			'Key.left': lambda: self.set_speed("yaw", 0),
-			'Key.right': lambda: self.set_speed("yaw", 0),
-			'Key.up': lambda: self.set_speed("throttle", 0),
-			'Key.down': lambda: self.set_speed("throttle", 0)
+			'z': lambda: self.set_speed(C_PITCH, 0),
+			's': lambda: self.set_speed(C_PITCH, 0),
+			'q': lambda: self.set_speed(C_ROLL, 0),
+			'd': lambda: self.set_speed(C_ROLL, 0),
+			'a': lambda: self.set_speed(C_YAW, 0),
+			'e': lambda: self.set_speed(C_YAW, 0),
+			'Key.left': lambda: self.set_speed(C_YAW, 0),
+			'Key.right': lambda: self.set_speed(C_YAW, 0),
+			'Key.up': lambda: self.set_speed(C_THROTTLE, 0),
+			'Key.down': lambda: self.set_speed(C_THROTTLE, 0)
 		}
 
 		if self.kbd_layout == "AZERTY":
@@ -500,7 +510,7 @@ class TelloController(object):
 		r_ear = self.op.get_body_kp(C_REAR)
 		l_ear = self.op.get_body_kp(C_LEAR) 
 		
-		self.shoulders_width = distance(r_shoulder,l_shoulder) if r_shoulder and l_shoulder else None
+		self.op.shoulders_width = distance(r_shoulder,l_shoulder) if r_shoulder and l_shoulder else None
 
 
 		vert_angle_right_arm = vertical_angle(r_wrist, r_elbow)
@@ -516,25 +526,25 @@ class TelloController(object):
 				# Right ear and right hand on the same side
 					if vert_angle_right_arm:
 						if vert_angle_right_arm < -15:
-							return "RIGHT_ARM_UP_OPEN"
+							return C_RIGHT_ARM_UP_OPEN
 						if 15 < vert_angle_right_arm < 90:
-							return "RIGHT_ARM_UP_CLOSED"
-				elif l_ear and self.shoulders_width and distance(r_wrist,l_ear) < self.shoulders_width/4:
+							return C_RIGHT_ARM_UP_CLOSED
+				elif l_ear and self.op.shoulders_width and distance(r_wrist,l_ear) < self.op.shoulders_width/4:
 					# Right hand close to left ear
-					return "RIGHT_HAND_ON_LEFT_EAR"
+					return C_RIGHT_HAND_ON_LEFT_EAR
 			else:
 				# Both hands up
 				# Check if both hands are on the ears
 				if r_ear and l_ear:
 					ear_dist = distance(r_ear,l_ear)
 					if distance(r_wrist,r_ear)<ear_dist/3 and distance(l_wrist,l_ear)<ear_dist/3:
-						return("HANDS_ON_EARS")
+						return(C_HANDS_ON_EARS)
 				# Check if boths hands are closed to each other and above ears 
 				# (check right hand is above right ear is enough since hands are closed to each other)
-				if self.shoulders_width and r_ear:
-					near_dist = self.shoulders_width/3
+				if self.op.shoulders_width and r_ear:
+					near_dist = self.op.shoulders_width/3
 					if r_ear[1] > r_wrist[1] and distance(r_wrist, l_wrist) < near_dist :
-						return "CLOSE_HANDS_UP"
+						return C_CLOSE_HANDS_UP
 
 		else:
 			if left_hand_up:
@@ -543,18 +553,18 @@ class TelloController(object):
 					# Left ear and left hand on the same side
 					if vert_angle_left_arm:
 						if vert_angle_left_arm < -15:
-							return "LEFT_ARM_UP_CLOSED"
+							return C_LEFT_ARM_UP_CLOSED
 						if 15 < vert_angle_left_arm < 90:
-							return "LEFT_ARM_UP_OPEN"
-				elif r_ear and self.shoulders_width and distance(l_wrist,r_ear) < self.shoulders_width/4:
+							return C_LEFT_ARM_UP_OPEN
+				elif r_ear and self.op.shoulders_width and distance(l_wrist,r_ear) < self.op.shoulders_width/4:
 					# Left hand close to right ear
-					return "LEFT_HAND_ON_RIGHT_EAR"
+					return C_LEFT_HAND_ON_RIGHT_EAR
 			else:
 				# Both wrists under the neck
-				if neck and self.shoulders_width and r_wrist and l_wrist:
-					near_dist = self.shoulders_width/3
+				if neck and self.op.shoulders_width and r_wrist and l_wrist:
+					near_dist = self.op.shoulders_width/3
 					if distance(r_wrist, neck) < near_dist and distance(l_wrist, neck) < near_dist :
-						return "HANDS_ON_NECK"
+						return C_HANDS_ON_NECK
 
 		return None
 
@@ -563,7 +573,7 @@ class TelloController(object):
 			Analyze the frame and return the frame with information (HUD, openpose skeleton) drawn on it
 		"""
 		
-		frame = raw_frame.copy()
+		frame = raw_frame
 		h,w,_ = frame.shape
 		proximity = int(w/2.6)
 		min_distance = int(w/2)
@@ -591,19 +601,13 @@ class TelloController(object):
 				self.yaw_consumed += consumed
 				if self.yaw_consumed > self.yaw_to_consume:
 					self.yaw_to_consume = 0
-					self.axis_speed["yaw"] = 0
+					self.axis_speed[C_YAW]= 0
 				else:
-					self.axis_speed["yaw"] = self.def_speed["yaw"]
+					self.axis_speed[C_YAW]= self.def_speed[C_YAW]
 
 			# We are not flying, we check a potential morse code 
 			if not self.is_flying:
 				pressing, detected = self.morse.eval(frame)
-				if self.is_pressed and not pressing:
-					self.tone.off()
-				elif not self.is_pressed and pressing:
-					self.tone.on()
-				self.is_pressed = pressing
-
 
 			# Call to openpose detection
 			if self.use_openpose:
@@ -624,43 +628,45 @@ class TelloController(object):
 					if self.pose:
 						# We trigger the associated action
 						log.info(f"pose detected : {self.pose}")
-						if self.pose == "HANDS_ON_NECK" or self.pose == "HANDS_ON_EARS":
+						if self.pose == C_HANDS_ON_NECK or self.pose == C_HANDS_ON_EARS:
 							# Take a picture in 1 second
 							if self.timestamp_take_picture is None:
 								log.info("Take a picture in 1 second")
 								self.timestamp_take_picture = time.time()
 								self.sound_player.play("taking picture")
-						elif self.pose == "RIGHT_ARM_UP_CLOSED":
-							log.info("GOING LEFT from pose")
-							self.axis_speed["roll"] = self.def_speed["roll"]
-						elif self.pose == "RIGHT_ARM_UP_OPEN":
-							log.info("GOING RIGHT from pose")
-							self.axis_speed["roll"] = -self.def_speed["roll"]
-						elif self.pose == "LEFT_ARM_UP_CLOSED":
+								
+								'''
+								elif self.pose == C_RIGHT_ARM_UP_CLOSED:
+									log.info("GOING LEFT from pose")
+									self.axis_speed[C_ROLL] = self.def_speed[C_ROLL]
+								elif self.pose == C_RIGHT_ARM_UP_OPEN:
+									log.info("GOING RIGHT from pose")
+									self.axis_speed[C_ROLL] = -self.def_speed[C_ROLL]
+								'''
+						
+						elif self.pose == C_LEFT_ARM_UP_CLOSED:
 							log.info("GOING FORWARD from pose")
-							self.axis_speed["pitch"] = self.def_speed["pitch"]
-						elif self.pose == "LEFT_ARM_UP_OPEN":
+							self.axis_speed[C_PITCH] = self.def_speed[C_PITCH]
+						elif self.pose == C_LEFT_ARM_UP_OPEN:
 							log.info("GOING BACKWARD from pose")
-							self.axis_speed["pitch"] = -self.def_speed["pitch"]
-						elif self.pose == "CLOSE_HANDS_UP":
+							self.axis_speed[C_PITCH] = -self.def_speed[C_PITCH]
+						elif self.pose == C_RIGHT_ARM_UP_CLOSED:
 							# Locked distance mode
 							if self.keep_distance is None:
 								if  time.time() - self.timestamp_keep_distance > 2:
 									# The first frame of a serie to activate the distance keeping
-									self.keep_distance = self.shoulders_width
+									self.keep_distance = self.op.shoulders_width
 									self.timestamp_keep_distance = time.time()
 									log.info(f"KEEP DISTANCE {self.keep_distance}")
 									self.pid_pitch = PID(0.5,0.04,0.3,setpoint=0,output_limits=(-50,50))
 									#self.graph_distance = RollingGraph(window_name="Distance", y_max=500, threshold=self.keep_distance, waitKey=False)
-									self.sound_player.play("keeping distance")
 							else:
 								if time.time() - self.timestamp_keep_distance > 2:
 									log.info("KEEP DISTANCE FINISHED")
-									self.sound_player.play("free")
 									self.keep_distance = None
 									self.timestamp_keep_distance = time.time()
 							
-						elif self.pose == "RIGHT_HAND_ON_LEFT_EAR":
+						elif self.pose == C_RIGHT_HAND_ON_LEFT_EAR:
 							# Get close to the body then palm landing
 							if not self.palm_landing_approach:
 								self.palm_landing_approach = True
@@ -670,7 +676,7 @@ class TelloController(object):
 								self.pid_pitch = PID(0.2,0.02,0.1,setpoint=0,output_limits=(-45,45))
 								#self.graph_distance = RollingGraph(window_name="Distance", y_max=500, threshold=self.keep_distance, waitKey=False)
 								self.sound_player.play("approaching")
-						elif self.pose == "LEFT_HAND_ON_RIGHT_EAR":
+						elif self.pose == C_LEFT_HAND_ON_RIGHT_EAR:
 							if not self.palm_landing:
 								log.info("LANDING on pose")
 								# Landing
@@ -712,16 +718,16 @@ class TelloController(object):
 						cv2.arrowedLine(frame, (ref_x, ref_y), target, (250, 150, 0), 6)
 					   
 						# The PID controllers calculate the new speeds for yaw and throttle
-						self.axis_speed["yaw"] = int(-self.pid_yaw(xoff))
-						log.debug(f"xoff: {xoff} - speed_yaw: {self.axis_speed['yaw']}")
-						self.last_rotation_is_cw = self.axis_speed["yaw"] > 0
+						self.axis_speed[C_YAW]= int(-self.pid_yaw(xoff))
+						log.debug(f"xoff: {xoff} - speed_yaw: {self.axis_speed[C_YAW]}")
+						self.last_rotation_is_cw = self.axis_speed[C_YAW]> 0
 
-						self.axis_speed["throttle"] = int(-self.pid_throttle(yoff))
-						log.debug(f"yoff: {yoff} - speed_throttle: {self.axis_speed['throttle']}")
+						self.axis_speed[C_THROTTLE] = int(-self.pid_throttle(yoff))
+						log.debug(f"yoff: {yoff} - speed_throttle: {self.axis_speed[C_THROTTLE]}")
 
-						# If in locke distance mode
-						if self.keep_distance and self.shoulders_width:   
-							if self.palm_landing_approach and self.shoulders_width>self.keep_distance:
+						# If in locked distance mode
+						if self.keep_distance and self.op.shoulders_width:   
+							if self.palm_landing_approach and self.op.shoulders_width>self.keep_distance:
 								# The drone is now close enough to the body
 								# Let's do the palm landing
 								log.info("PALM LANDING after approaching")
@@ -729,27 +735,27 @@ class TelloController(object):
 								self.toggle_tracking(tracking=False)
 								self.palm_land() 
 							else:
-								self.axis_speed["pitch"] = int(self.pid_pitch(self.shoulders_width-self.keep_distance))
-								log.debug(f"Target distance: {self.keep_distance} - cur: {self.shoulders_width} -speed_pitch: {self.axis_speed['pitch']}")
+								self.axis_speed[C_PITCH] = int(self.pid_pitch(self.op.shoulders_width-self.keep_distance))
+								log.debug(f"Target distance: {self.keep_distance} - cur: {self.op.shoulders_width} -speed_pitch: {self.axis_speed[C_PITCH]}")
 					else: # Tracking but no body detected
 						if self.body_in_prev_frame:
 							self.timestamp_no_body = time.time()
 							self.body_in_prev_frame = False
-							self.axis_speed["throttle"] = self.prev_axis_speed["throttle"]
-							self.axis_speed["yaw"] = self.prev_axis_speed["yaw"]
+							self.axis_speed[C_THROTTLE] = self.prev_axis_speed[C_THROTTLE]
+							self.axis_speed[C_YAW]= self.prev_axis_speed[C_YAW]
 						else:
 							if time.time() - self.timestamp_no_body < 1:
 								print("NO BODY SINCE < 1", self.axis_speed, self.prev_axis_speed)
-								self.axis_speed["throttle"] = self.prev_axis_speed["throttle"]
-								self.axis_speed["yaw"] = self.prev_axis_speed["yaw"]
+								self.axis_speed[C_THROTTLE] = self.prev_axis_speed[C_THROTTLE]
+								self.axis_speed[C_YAW]= self.prev_axis_speed[C_YAW]
 							else:
 								log.debug("NO BODY detected for 1s -> rotate")
-								self.axis_speed["yaw"] = self.def_speed["yaw"] * (1 if self.last_rotation_is_cw else -1)
+								self.axis_speed[C_YAW]= self.def_speed[C_YAW]* (1 if self.last_rotation_is_cw else -1)
 
 		# Send axis commands to the drone
-		for axis, command in self.axis_command.items():
-			if self.axis_speed[axis]is not None and self.axis_speed[axis] != self.prev_axis_speed[axis]:
-				log.debug(f"COMMAND {axis} : {self.axis_speed[axis]}")
+		for axis, command in enumerate(self.axis_command):
+			if self.axis_speed[axis] is not None and self.axis_speed[axis] != self.prev_axis_speed[axis]:
+				# log.debug(f"COMMAND {axis} : {self.axis_speed[axis]}")
 				command(self.axis_speed[axis])
 				self.prev_axis_speed[axis] = self.axis_speed[axis]
 			else:
@@ -785,9 +791,9 @@ class TelloController(object):
 
 		hud = HUD()
 
-		if self.debug: hud.add(datetime.datetime.now().strftime('%H:%M:%S'))
+		# if self.debug: hud.add(datetime.datetime.now().strftime('%H:%M:%S'))
 		hud.add(f"FPS {self.fps.get():.2f}")
-		if self.debug: hud.add(f"VR {self.video_encoder_rate}")
+		# if self.debug: hud.add(f"VR {self.video_encoder_rate}")
 
 		hud.add(f"BAT {self.battery}")
 		if self.is_flying:
@@ -797,35 +803,37 @@ class TelloController(object):
 		hud.add(f"TRACKING {'ON' if self.tracking else 'OFF'}", (0,255,0) if self.tracking else (0,0,255) )
 		hud.add(f"EXPO {self.exposure}")
 		
-		if self.axis_speed['yaw'] > 0:
-			hud.add(f"CW {self.axis_speed['yaw']}", (0,255,0))
-		elif self.axis_speed['yaw'] < 0:
-			hud.add(f"CCW {-self.axis_speed['yaw']}", (0,0,255))
+		if self.axis_speed[C_YAW] > 0:
+			hud.add(f"CW {self.axis_speed[C_YAW]}", (0,255,0))
+		elif self.axis_speed[C_YAW] < 0:
+			hud.add(f"CCW {-self.axis_speed[C_YAW]}", (0,0,255))
 		else:
 			hud.add(f"CW 0")
-		if self.axis_speed['roll'] > 0:
-			hud.add(f"RIGHT {self.axis_speed['roll']}", (0,255,0))
-		elif self.axis_speed['roll'] < 0:
-			hud.add(f"LEFT {-self.axis_speed['roll']}", (0,0,255))
+		if self.axis_speed[C_ROLL] > 0:
+			hud.add(f"RIGHT {self.axis_speed[C_ROLL]}", (0,255,0))
+		elif self.axis_speed[C_ROLL] < 0:
+			hud.add(f"LEFT {-self.axis_speed[C_ROLL]}", (0,0,255))
 		else:
 			hud.add(f"RIGHT 0")
-		if self.axis_speed['pitch'] > 0:
-			hud.add(f"FORWARD {self.axis_speed['pitch']}", (0,255,0))
-		elif self.axis_speed['pitch'] < 0:
-			hud.add(f"BACKWARD {-self.axis_speed['pitch']}", (0,0,255))
+		if self.axis_speed[C_PITCH] > 0:
+			hud.add(f"FORWARD {self.axis_speed[C_PITCH]}", (0,255,0))
+		elif self.axis_speed[C_PITCH] < 0:
+			hud.add(f"BACKWARD {-self.axis_speed[C_PITCH]}", (0,0,255))
 		else:
 			hud.add(f"FORWARD 0")
-		if self.axis_speed['throttle'] > 0:
-			hud.add(f"UP {self.axis_speed['throttle']}", (0,255,0))
-		elif self.axis_speed['throttle'] < 0:
-			hud.add(f"DOWN {-self.axis_speed['throttle']}", (0,0,255))
+		if self.axis_speed[C_THROTTLE] > 0:
+			hud.add(f"UP {self.axis_speed[C_THROTTLE]}", (0,255,0))
+		elif self.axis_speed[C_THROTTLE] < 0:
+			hud.add(f"DOWN {-self.axis_speed[C_THROTTLE]}", (0,0,255))
 		else:
 			hud.add(f"UP 0")
 
-		if self.use_openpose: hud.add(f"POSE: {self.pose}", (0,255,0) if self.pose else (255, 170, 0))
+		if self.use_openpose:
+			hud.add(f"POSE: {self.pose}", (0,255,0) if self.pose else (255, 170, 0))
+		
 		if self.keep_distance: 
-			hud.add(f"Target distance: {self.keep_distance} - curr: {self.shoulders_width}", (0,255,0))
-			#if self.shoulders_width: self.graph_distance.new_iter([self.shoulders_width])
+			hud.add(f"Target distance: {self.keep_distance} - curr: {self.op.shoulders_width}", (0,255,0))
+			#if self.op.shoulders_width: self.graph_distance.new_iter([self.op.shoulders_width])
 		if self.timestamp_take_picture: hud.add("Taking a picture", (0,255,0))
 		if self.palm_landing:
 			hud.add("Palm landing...", (0,255,0))
@@ -879,7 +887,7 @@ class TelloController(object):
 	def delayed_takeoff(self, delay=5):
 		self.scheduled_takeoff = time.time()+delay
 		self.tracking_after_takeoff = True
-		self.keep_distance = True
+		#self.keep_distance = True
 		''' for debugging '''
 		#self.toggle_tracking(True)
 	def clockwise_degrees(self, degrees):
@@ -916,7 +924,7 @@ class TelloController(object):
 			self.pid_throttle = PID(0.4,0,0,setpoint=0,output_limits=(-80,100))
 			# self.init_tracking = True
 		else:
-			self.axis_speed = { "yaw":0, "roll":0, "pitch":0, "throttle":0}
+			self.axis_speed = np.zeros(4, dtype=np.int32)
 			self.keep_distance = None
 		return
 
@@ -938,7 +946,7 @@ class TelloController(object):
 		#print("height",data.height,"imu_state",data.imu_state,"down_visual_state",data.down_visual_state)
 		if self.is_flying != data.em_sky:			
 			self.is_flying = data.em_sky
-			log.debug(f"FLYING : {self.is_flying}")
+			#log.debug(f"FLYING : {self.is_flying}")
 			if not self.is_flying:
 				self.reset()
 			else:
@@ -946,7 +954,7 @@ class TelloController(object):
 					log.info("Tracking on after takeoff")
 					self.toggle_tracking(True)
 					
-		log.debug(f"MODE: {self.fly_mode} - Throw fly timer: {self.throw_fly_timer}")
+		#log.debug(f"MODE: {self.fly_mode} - Throw fly timer: {self.throw_fly_timer}")
 
 	def log_data_handler(self, event, sender, data):
 		"""
