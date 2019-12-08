@@ -157,7 +157,7 @@ def get_skps(kps_coord, kps_score):
 	r = (0,)*C_NKP
 	min_x = None
 	max_x = None
-	min_y = None	
+	min_y = None
 	max_y = None
 	
 	for i in range(C_NKP):
@@ -241,7 +241,7 @@ def renderer_tracker(lock, mp_event):
 				for i in range(0, min(nposes, C_NTRACK)): # extract new feature of C_NTRACK most highest score pose
 					kps_coord 		= kps_coords[sort[i]]
 					kps_score 		= kps_scores[sort[i]]
-					#top, bottom 	= top, bottom 	= draw_bound_box(surf, kps_coord, kps_score, C_BLUE)
+					#top, bottom 	= draw_bound_box(surf, kps_coord, kps_score, C_BLUE)
 					top,  bottom	= get_bound_box(kps_coord, kps_score)
 					
 					mask = np.zeros(frame.shape[:-1], dtype=np.uint8) # init mask
@@ -272,8 +272,11 @@ def renderer_tracker(lock, mp_event):
 						
 						found_features = [] # only get feature inside current pose bounding box
 						for e in new_features:
-							if mask[floor(e[1])][floor(e[0])] == 1: # feature is in float
-								found_features.append(e)
+							try:
+								if mask[floor(e[1])][floor(e[0])] == 1: # feature is in float
+									found_features.append(e)
+							except:
+								pass
 						found_features = np.array(found_features, dtype=np.float32)
 													
 						if found_features.shape[0] >= C_FEATURE_THRESHOLD: # if there are more than C_FEATURE_THRESHOLD consider a valid
@@ -388,6 +391,8 @@ def main():
 	KP_BUFFER			= sharedctypes.RawValue(ctypes.c_uint*2*C_NKP*C_MAXPOSE)
 	KP_SCORE_BUFFER		= sharedctypes.RawValue(ctypes.c_double*C_NKP*C_MAXPOSE)
 	POSESCORE_BUFFER	= sharedctypes.RawValue(ctypes.c_double*C_MAXPOSE)
+	HEIGHT_BUFFER		= sharedctypes.RawValue(ctypes.c_uint*C_MAXPOSE)
+	HEIGHT_IDX_BUFFER	= sharedctypes.RawValue(ctypes.c_uint*C_MAXPOSE)
 	
 	NPOSES 				= sharedctypes.RawValue(ctypes.c_ushort)
 	RUNNING				= sharedctypes.RawValue(ctypes.c_ubyte, 1)
@@ -408,8 +413,10 @@ def main():
 		cap.set(cv2.CAP_PROP_FRAME_WIDTH, src_size[0])
 		cap.set(cv2.CAP_PROP_FRAME_HEIGHT, src_size[1])
 
+	
 	frame_count = 0
 	start_time = time.time()
+	pose_height = np.zeros(C_MAXPOSE, dtype=np.uint32)
 	while RUNNING:
 		if not PAUSE:			
 			try:
@@ -421,13 +428,16 @@ def main():
 
 				lock.acquire()
 				FRAMEBUFFER[:] 					= np.ctypeslib.as_ctypes(input_img)
-				if nposes:
-					
-					
+				if nposes:						
 					NPOSES.value 				= nposes
 					KP_BUFFER[:nposes] 			= np.ctypeslib.as_ctypes(kps.astype(np.uint32))
 					KP_SCORE_BUFFER[:nposes] 	= np.ctypeslib.as_ctypes(kps_score)
-					POSESCORE_BUFFER[:] 	= np.ctypeslib.as_ctypes(pose_scores)
+					POSESCORE_BUFFER[:] 		= np.ctypeslib.as_ctypes(pose_scores)
+					
+					for i in range(nposes):
+						top, bottom = get_bound_box(KP_BUFFER[i], KP_SCORE_BUFFER[i])
+						pose_height[i] = bottom[1]-top[1]
+						
 				lock.release()
 				
 				if args.interact:
