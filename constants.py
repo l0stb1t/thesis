@@ -1,6 +1,7 @@
 import pygame
 import cv2
 
+C_MIDHIP = 18
 C_NECK = 17
 C_NOSE = 0
 C_LEYE = 1
@@ -11,18 +12,31 @@ C_LKNEE = 13
 C_RKNEE = 14
 C_LANKLE = 15
 C_RANKLE = 16
-C_RWRIST = 10
 C_LWRIST = 9
-C_RELBOW = 8
+C_RWRIST = 10
 C_LELBOW = 7
-C_RSHOULDER = 6
+C_RELBOW = 8
 C_LSHOULDER = 5
+C_RSHOULDER = 6
 C_REAR = 4
 C_LEAR = 3
 
-C_NKP 		= 18
+C_KP_NAMES = (
+	'nose', 'left eye', 'right eye', 'left ear', 'right ear',
+	'left shoulder', 'right shoudler',
+	'left elbow', 'right elbow',
+	'left wrist', 'right wrist',
+	'left hip', 'right hip',
+	'left knee', 'right knee',
+	'left ankle', 'right ankle',
+	'neck', 'mid hip'
+)
+
+C_PAIRS = ((C_LSHOULDER, C_LHIP), (C_RSHOULDER, C_RHIP), (C_LHIP, C_RHIP), (C_LKNEE, C_LHIP), (C_RKNEE, C_RHIP), (C_LANKLE, C_LKNEE), (C_RANKLE, C_RKNEE), (C_RWRIST, C_RELBOW), (C_LWRIST, C_LELBOW), (C_RELBOW, C_RSHOULDER), (C_LELBOW, C_LSHOULDER), (C_LSHOULDER, C_RSHOULDER))
+
+C_NKP 		= 19
 C_MAXPOSE 	= 10
-C_KP_THRESHOLD = 0.4
+C_KP_THRESHOLD = 0.2
 C_PSCORE_THRESHOLD = 0.3
 
 C_RED = (255, 0, 0)

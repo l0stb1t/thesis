@@ -1,6 +1,7 @@
 import sys
 sys.path.insert(0, '/home/bit/project-posenet/')
 
+import pdb
 import cv2
 import time
 import ctypes
@@ -11,7 +12,6 @@ import numpy as np
 import multiprocessing as mp
 from pose_engine import PoseEngine
 from multiprocessing import sharedctypes
-from math import atan2, degrees, sqrt, pi, floor
 from constants import *
 from util import *
 
@@ -43,14 +43,6 @@ elif args.res == '1280x720':
 
 print('Loading model: ', model)
 engine = PoseEngine(model, mirror=args.mirror)
-
-def vertical_angle(A, B):
-	if A is None or B is None:
-		return None
-	return degrees(atan2(B[0]-A[0],B[1]-A[1]) - pi/2)
-
-def distance (A, B):
-	return np.linalg.norm(A-B)
 
 def check_pose(keypoint_coord, keypoint_score):
 	if keypoint_score[-1] > C_KP_THRESHOLD:
@@ -103,13 +95,13 @@ def check_pose(keypoint_coord, keypoint_score):
 	vert_angle_right_arm = vertical_angle(r_wrist, r_elbow)
 	vert_angle_left_arm = vertical_angle(l_wrist, l_elbow)
 	
-	left_hand_up = (neck is not None) and (l_wrist is not None) and l_wrist[0] < neck[0]
-	right_hand_up = (neck is not None) and (r_wrist is not None)  and r_wrist[0] < neck[0]
+	left_hand_up = (neck is not None) and (l_wrist is not None) and l_wrist[1] < neck[1]
+	right_hand_up = (neck is not None) and (r_wrist is not None)  and r_wrist[1] < neck[1]
 	#print (left_hand_up, right_hand_up)
 	if right_hand_up:
 		if not left_hand_up:
 			# Only right arm up
-			if (r_ear is not None) and (r_ear[1]-neck[1])*(r_wrist[1]-neck[1])>0:
+			if (r_ear is not None) and (r_ear[0]-neck[0])*(r_wrist[0]-neck[0])>0:
 			# Right ear and right hand on the same side
 				if vert_angle_right_arm:
 					if vert_angle_right_arm < -15:
@@ -130,12 +122,12 @@ def check_pose(keypoint_coord, keypoint_score):
 			# (check right hand is above right ear is enough since hands are closed to each other)
 			if shoulders_width and (r_ear is not None):
 				near_dist = shoulders_width/3
-				if r_ear[0] > r_wrist[0] and distance(r_wrist, l_wrist) < near_dist :
+				if r_ear[1] > r_wrist[1] and distance(r_wrist, l_wrist) < near_dist :
 					return C_CLOSE_HANDS_UP
 	else:
 		if left_hand_up:
 			# Only left arm up
-			if (l_ear is not None) and (l_ear[1]-neck[1])*(l_wrist[1]-neck[1])>0:
+			if (l_ear is not None) and (l_ear[0]-neck[0])*(l_wrist[0]-neck[0])>0:
 				# Left ear and left hand on the same side
 				if vert_angle_left_arm:
 					if vert_angle_left_arm < -15:
@@ -153,31 +145,6 @@ def check_pose(keypoint_coord, keypoint_score):
 					return C_HANDS_ON_NECK
 	return None
 
-def get_skps(kps_coord, kps_score):
-	r = (0,)*C_NKP
-	min_x = None
-	max_x = None
-	min_y = None
-	max_y = None
-	
-	for i in range(C_NKP):
-		if kps_score[i] >= C_KP_THRESHOLD:
-			r[i] = kps_coord[i]
-			x = r[i][0]
-			y = r[i][1]
-			
-			if max_x is None or x > max_x:
-				max_x = x
-			if min_x is None or x < min_x:
-				min_x = x
-			if max_y is None or y > max_y:
-				max_y = y
-			if min_y is None or y < min_y:
-				min_y = y
-		else:
-			r[i] = None
-	return r, (min_x, min_y), (max_x, max_y)
-
 def get_frame():
 	return np.ctypeslib.as_array(FRAMEBUFFER).copy()
 	
@@ -185,7 +152,8 @@ def get_surf():
     global FRAMEBUFFER
     
     frame = np.ctypeslib.as_array(FRAMEBUFFER).copy()
-    surf = pygame.surfarray.make_surface(frame)
+    ''' Pygame use (x, y) frame format so have to convert it but return the original frame for later use with opencv '''
+    surf = pygame.surfarray.make_surface(np.rot90(frame)[::-1])
     return surf, frame
 
 def get_pose_shared_data(lock):
@@ -203,6 +171,33 @@ def get_pose_shared_data(lock):
 		pose_scores = None
 	lock.release()
 	return nposes, kps_coords, kps_scores, pose_scores
+	
+def get_pose_shared_data2(lock):
+	global NPOSES, FRAMEBUFFER, KP_BUFFER, KP_SCORE_BUFFER, POSESCORE_BUFFER
+	
+	pose_list = []
+	
+	lock.acquire()
+	nposes = NPOSES.value
+	if nposes:
+		kps_coords 	= np.ctypeslib.as_array(KP_BUFFER).copy()
+		kps_scores 	= np.ctypeslib.as_array(KP_SCORE_BUFFER).copy()
+		pose_scores = np.ctypeslib.as_array(POSESCORE_BUFFER).copy()
+		lock.release()
+		
+		for i in range(nposes):
+			if pose_scores[i] >= C_PSCORE_THRESHOLD:
+				kps_coord = kps_coords[i]
+				kps_score = kps_scores[i]
+				
+				keypoints = {}
+				for j in range(C_NKP):
+					if kps_score[j] >= C_KP_THRESHOLD:
+						keypoints[C_KP_NAMES[j]] = Keypoint(C_KP_NAMES[j], kps_coord[j], kps_score[j])
+				pose_list.append(Pose(keypoints, pose_scores[i]))
+	else:
+		lock.release()
+	return pose_list
 	
 def renderer_tracker(lock, mp_event):
 	global args, RUNNING
@@ -226,15 +221,23 @@ def renderer_tracker(lock, mp_event):
 		surf, frame = get_surf()
 		nposes, kps_coords, kps_scores, pose_scores = get_pose_shared_data(lock)
 		
-		pose_idxs = []
-		for i in range(nposes): # only take pose with score > C_PSCORE_THRESHOLD
-			if pose_scores[i] >= C_PSCORE_THRESHOLD:
-				pose_idxs.append(i)
-		nposes = len(pose_idxs)
+		count = 0
+		if nposes:
+			pose_heights 	= np.zeros(C_MAXPOSE, dtype=np.uint32)
+			for i in range(nposes): # only take pose with score > C_PSCORE_THRESHOLD
+				if pose_scores[i] >= C_PSCORE_THRESHOLD:
+					top, bottom = get_bound_box(kps_coords[i], kps_scores[i])
+					height = bottom[1] - top[1]
+					pose_heights[i] = height
+					count += 1
+				else:
+					pose_heights[i] = 0
+			pose_height_idx_sorted = np.argsort(pose_heights)[::-1]
+			# print (pose_height_idx_sorted)
+			pose_idxs = list(pose_height_idx_sorted[:nposes])
+			nposes = count
 		if nposes: # there are people in the frame
-			sort = list(np.argsort(pose_scores)[::-1][:nposes])
-			print (nposes)
-			print (sort)
+			sort = pose_idxs
 			current_frame 	= cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) #convert current frame to gray scale
 			if feature_count == 0 or ( (feature_count<C_NTRACK) and (feature_count<nposes) ): # we are currently tracking no one
 				feature_count = 0
@@ -243,15 +246,16 @@ def renderer_tracker(lock, mp_event):
 					kps_score 		= kps_scores[sort[i]]
 					#top, bottom 	= draw_bound_box(surf, kps_coord, kps_score, C_BLUE)
 					top,  bottom	= get_bound_box(kps_coord, kps_score)
-					
-					mask = np.zeros(frame.shape[:-1], dtype=np.uint8) # init mask
-					mask[top[0]:bottom[0], top[1]:bottom[1]] = 1
-					features[i] = cv2.goodFeaturesToTrack(current_frame, mask=mask, **feature_params)# extract features
-					print ('goodFeaturesToTrack', features[i].shape) 
-					feature_count += 1
+					mask = np.zeros(frame.shape[:-1], dtype=np.uint8) # init mask, mask have the same shape as the frame (y, x)
+					mask[top[1]:bottom[1], top[0]:bottom[0]] = 1
+					f = cv2.goodFeaturesToTrack(current_frame, mask=mask, **feature_params) # extract features
+					if f is not None:
+						features[i] = f
+						# print ('goodFeaturesToTrack', features[i].shape) 
+						feature_count += 1
 					
 			else: # there are  >= 1 features
-				print ('feature_count:', feature_count)
+				# print ('feature_count:', feature_count)
 				for i in range(feature_count):
 					if features[i] is None:
 						continue
@@ -261,11 +265,11 @@ def renderer_tracker(lock, mp_event):
 					for pose_idx in sort:
 						kps_coord 		= kps_coords[pose_idx]
 						kps_score 		= kps_scores[pose_idx]
-						top, bottom 	= draw_bound_box(surf, kps_coord, kps_score, C_BLUE)
-						#top,  bottom	= get_bound_box(kps_coord, kps_score)
-						
-						mask = np.zeros(frame.shape[:-1], dtype=np.uint8) # init mask
-						mask[top[0]:bottom[0], top[1]:bottom[1]] = 1 
+						#top, bottom 	= draw_bound_box(surf, kps_coord, kps_score, C_BLUE)
+						top,  bottom	= get_bound_box(kps_coord, kps_score)
+
+						mask = np.zeros(frame.shape[:-1], dtype=np.uint8) # init mask, mask have the same shape as the frame (y, x)
+						mask[top[1]:bottom[1], top[0]:bottom[0]] = 1 
 						
 						new_features, st, err = cv2.calcOpticalFlowPyrLK(prev_frame, current_frame, old_features, None, **lk_params) # extract new features
 						new_features = new_features[st==1]
@@ -281,26 +285,27 @@ def renderer_tracker(lock, mp_event):
 													
 						if found_features.shape[0] >= C_FEATURE_THRESHOLD: # if there are more than C_FEATURE_THRESHOLD consider a valid
 								found = 1
-								draw_points(surf, found_features, color=colors[i]) # for debugging
-								draw_bound_box(surf, kps_coord, kps_score, colors[i]) #draw bound box
+								draw_points(surf, found_features, color=C_RED) # for debugging
+								#draw_bound_box(surf, kps_coord, kps_score, colors[i]) #draw bound box
+								draw_pose2(surf, kps_coord, kps_score, colors[i])
 								sort.remove(pose_idx) #remove current pose from list
 								
 								if found_features.shape[0] <= C_FEATURE_THRESHOLD2: #our feature count is too low
-									features[i] = cv2.goodFeaturesToTrack(current_frame, mask=mask, **feature_params)# we reupdate our feature
-									print ('reupdate feature', features[i].shape)
+									f = cv2.goodFeaturesToTrack(current_frame, mask=mask, **feature_params)# we reupdate our feature
+									if f is not None:
+										features[i] = f
+										# print ('reupdate feature', features[i].shape)
 								else:
 									features[i] = found_features.reshape(-1, 1, 2) #update new features
-									print ('new feature', found_features.shape)
+									# print ('new feature', found_features.shape)
 								break
 								
 					if not found: # we don't have a match
-						features = [None]*C_NTRACK
-						feature_count = 0
+						features[i] = None
+						feature_count -= 1
+						draw_pose2(surf, kps_coord, kps_score, color=C_BLUE)
 						
 			prev_frame = current_frame
-
-		surf = pygame.transform.rotate(surf, -90)
-		surf = pygame.transform.flip(surf, True, False)
 		display.blit(surf, (0, 0))
 		pygame.display.update()
 		pygame.time.delay(15)
@@ -315,7 +320,84 @@ def renderer_tracker(lock, mp_event):
 	pygame.quit()
 
 def renderer_tracker2(lock, mp_event):
-	pass    
+	global args, RUNNING
+	
+	pygame.init()
+	display = pygame.display.set_mode(appsink_size)
+	pygame.display.set_caption('tracker2')
+	
+	C_NTRACK2 = 10
+	C_DISTANCE_THRESHOLD = 50
+	
+	features 		= [None]*C_NTRACK2
+	feature_count 	= 0
+	colors			= [C_YELLOW, C_GREEN] + [rand_color() for i in range(32)]
+	prev_poses 		= []
+	
+	frame_count = 0
+	start_time = time.time()
+	
+	while RUNNING:
+		if args.interact:
+			mp_event.wait()
+			mp_event.clear()
+		
+		frame_count += 1
+		surf, frame = get_surf()
+		poses = get_pose_shared_data2(lock)
+		
+		''' assign color id to each pose found in the first frame'''
+		if len(prev_poses) == 0:
+			prev_poses[:] = poses
+			print ('%d new pose' % len(prev_poses))
+			for pose in prev_poses:
+				pose.color = colors.pop(0)
+		else:
+			t = []
+			''' for each new pose in the new frame
+				calculate distance to each pose in the prev frame
+			'''
+			for i, pose in enumerate(poses):
+				print ('%d poses in frame' % len(poses))
+				match = {}
+				match_idx 		= None
+				min_distance 	= 1024
+				for j, prev_pose in enumerate(prev_poses):
+					d = prev_pose.generic_distance(pose)
+					''' match with the pose with closest distance '''
+					if d < min_distance and d < C_DISTANCE_THRESHOLD:
+						match_idx = j
+						min_distance = d
+						
+				''' if we found a match '''
+				if match_idx is not None:
+					pose.color = prev_poses[match_idx].color
+					t.append(pose)
+					del prev_poses[match_idx]
+					pose.draw_pose(surf)
+				else:
+					''' the new pose doesn't match any prev pose. Assign it a new ID '''
+					pose.color = colors.pop()
+					t.append(pose)
+					
+			for pose in prev_poses:
+				pose.ttl -= 1
+				if pose.ttl:
+					t.append(pose)
+			prev_poses = t
+				
+		display.blit(surf, (0, 0))
+		pygame.display.update()
+		pygame.time.delay(15)
+		
+		for event in pygame.event.get():
+			if event.type == pygame.QUIT:
+				RUNNING.value = 0
+				break
+				
+	end_time = time.time()
+	print ('Tracker2 FPS:', frame_count/(end_time - start_time))
+	pygame.quit()
 
 def renderer_poser(lock, mp_event):
 	global RUNNING, PAUSE
@@ -344,12 +426,11 @@ def renderer_poser(lock, mp_event):
 						kps_coord = kps_coords[i]
 						kps_score = kps_scores[i]
 							
-						color = rand_color()
-						draw_pose(surf, kps_coord, kps_score, color)
-						top, bottom = draw_bound_box(surf, kps_coord, kps_score, color)
+						draw_pose(surf, kps_coord, kps_score)
+						top, bottom = draw_bound_box(surf, kps_coord, kps_score)
 						pose = check_pose(kps_coord, kps_score)
 						if pose is not None:
-							LABELS[i] = (POSE_TEXTS[pose], (top[1], top[0]))
+							LABELS[i] = (POSE_TEXTS[pose], top)
 						else:
 							LABELS[i] = None
 						'''
@@ -362,8 +443,6 @@ def renderer_poser(lock, mp_event):
 			else:
 				lock.release()
 				
-			surf = pygame.transform.rotate(surf, -90)
-			surf = pygame.transform.flip(surf, True, False)		
 			display.blit(surf, (0, 0))
 			for i in range(nposes):
 				if LABELS[i]:
@@ -383,12 +462,52 @@ def renderer_poser(lock, mp_event):
 	print ('Poser FPS:', frame_count/(end_time - start_time))
 	pygame.quit()
 
+def renderer_pose_only(lock, mp_event):
+	global args, RUNNING
+	
+	pygame.init()
+	display = pygame.display.set_mode(appsink_size)
+	pygame.display.set_caption('pose only')
+	
+	features 		= [None]*C_NTRACK
+	feature_count 	= 0
+	colors			= [C_YELLOW, C_GREEN] + [rand_color() for i in range(C_NTRACK-2)]
+	
+	frame_count = 0
+	start_time = time.time()
+	while RUNNING:
+		if args.interact:
+			mp_event.wait()
+			mp_event.clear()
+		
+		frame_count += 1
+		surf, frame = get_surf()
+		nposes, kps_coords, kps_scores, pose_scores = get_pose_shared_data(lock)
+		
+		for i in range(nposes):
+			if pose_scores[i] >= C_PSCORE_THRESHOLD:
+				draw_pose2(surf, kps_coords[i], kps_scores[i])
+				# draw_bound_box(surf, kps_coords[i], kps_scores[i])
+					
+		display.blit(surf, (0, 0))
+		pygame.display.update()
+		pygame.time.delay(15)
+		
+		for event in pygame.event.get():
+			if event.type == pygame.QUIT:
+				RUNNING.value = 0
+				break
+				
+	end_time = time.time()
+	print ('pose only FPS:', frame_count/(end_time - start_time))
+	pygame.quit()
+
 def main():
 	global RUNNING, PAUSE
 	global NPOSES, FRAMEBUFFER, KP_BUFFER, KP_SCORE_BUFFER, POSESCORE_BUFFER
 
 	FRAMEBUFFER 		= sharedctypes.RawValue(ctypes.c_ubyte*3*appsink_size[0]*appsink_size[1])
-	KP_BUFFER			= sharedctypes.RawValue(ctypes.c_uint*2*C_NKP*C_MAXPOSE)
+	KP_BUFFER			= sharedctypes.RawValue(ctypes.c_int*2*C_NKP*C_MAXPOSE)
 	KP_SCORE_BUFFER		= sharedctypes.RawValue(ctypes.c_double*C_NKP*C_MAXPOSE)
 	POSESCORE_BUFFER	= sharedctypes.RawValue(ctypes.c_double*C_MAXPOSE)
 	HEIGHT_BUFFER		= sharedctypes.RawValue(ctypes.c_uint*C_MAXPOSE)
@@ -403,8 +522,12 @@ def main():
 	
 	p_renderer_poser 	= mp.Process(target=renderer_poser, args=(lock, mp_event))
 	p_renderer_tracker 	= mp.Process(target=renderer_tracker, args=(lock, mp_event))
-	# p_renderer_poser.start()
-	p_renderer_tracker.start()
+	p_renderer_tracker2 = mp.Process(target=renderer_tracker2, args=(lock, mp_event))
+	p_renderer_pose_only = mp.Process(target=renderer_pose_only, args=(lock, mp_event))
+	p_renderer_tracker2.start()
+	#p_renderer_poser.start()
+	#p_renderer_tracker.start()
+	p_renderer_pose_only.start()
 
 	if args.file is not None:
 		cap = cv2.VideoCapture(args.file)
@@ -424,20 +547,19 @@ def main():
 				cap_res, cap_frame 	= cap.read()
 				input_img 			= cv2.resize(cap_frame, appsink_size, cv2.INTER_NEAREST)
 				input_img 			= cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB).astype(np.uint8)
+				# input_img = cv2.GaussianBlur(input_img, (3, 3), cv2.BORDER_DEFAULT)
+				# opencv ouput frame in (y, x) but use (x, y) point format ¯\_(ツ)_/¯
+				# print (input_img.shape)
 				nposes, pose_scores, kps, kps_score = engine.DetectPosesInImage(input_img)
 
 				lock.acquire()
 				FRAMEBUFFER[:] 					= np.ctypeslib.as_ctypes(input_img)
-				if nposes:						
+				if nposes:				
 					NPOSES.value 				= nposes
-					KP_BUFFER[:nposes] 			= np.ctypeslib.as_ctypes(kps.astype(np.uint32))
+					# I converted PoseNet output to (x, y)
+					KP_BUFFER[:nposes] 			= np.ctypeslib.as_ctypes(kps.astype(np.int32))
 					KP_SCORE_BUFFER[:nposes] 	= np.ctypeslib.as_ctypes(kps_score)
-					POSESCORE_BUFFER[:] 		= np.ctypeslib.as_ctypes(pose_scores)
-					
-					for i in range(nposes):
-						top, bottom = get_bound_box(KP_BUFFER[i], KP_SCORE_BUFFER[i])
-						pose_height[i] = bottom[1]-top[1]
-						
+					POSESCORE_BUFFER[:] 		= np.ctypeslib.as_ctypes(pose_scores)						
 				lock.release()
 				
 				if args.interact:

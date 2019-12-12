@@ -143,12 +143,21 @@ class PoseEngine(BasicEngine):
 			neck = (keypoint[C_LSHOULDER] + keypoint[C_RSHOULDER])/2
 			neck_score = (keypoint_score[C_LSHOULDER] + keypoint_score[C_RSHOULDER])/2
 			
+			midhip = (keypoint[C_LHIP] + keypoint[C_RHIP])/2
+			midhip_score = (keypoint_score[C_LHIP] + keypoint_score[C_RHIP])/2
 			
-			r_keypoints[i][0:-1] = keypoint
-			r_keypoint_scores[i][0:-1] = keypoint_score
+			# PoseNet output point as (y, x) so have to convert it to (x, y) (ノಠ益ಠ)ノ彡┻━┻
+			# keypoint (x, y)
+			r_keypoints[i][0:-2] = keypoint[:, ::-1]
+			r_keypoints[i][-2] = neck[::-1]
+			r_keypoints[i][-1] = midhip[::-1]
 			
-			r_keypoints[i][-1] = neck
-			r_keypoint_scores[i][-1] = neck_score
+			# keypoint with (y, x) format 
+			#r _keypoints[i][0:-1] = keypoint
+			
+			r_keypoint_scores[i][0:-2] = keypoint_score
+			r_keypoint_scores[i][-2] = neck_score
+			r_keypoint_scores[i][-1] = midhip_score
 		return (nposes, pose_scores, r_keypoints, r_keypoint_scores)
 
 		# Convert the poses to a friendlier format of keypoints with associated
