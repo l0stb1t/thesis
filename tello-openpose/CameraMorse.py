@@ -101,13 +101,13 @@ class CameraMorse:
             self.graph_brightness = RollingGraph(threshold=self.threshold)
 
     def define_command(self, code, command, kwargs={}):
-        """
+        '''
             Add a (code, command, args) to the dictionary of the command
             'command' is a python function
             kwargs is a optionnal dictionary of keyword arguments that will be passed to function 'command' 
             when it will be called. Called this way: command(**kwargs)
             Beware that if code1 is a prefix of code2, the command associated to code2 will never be called !
-        """
+        '''
         self.commands[code] = (command, kwargs)
 
     def is_pressing (self, frame):

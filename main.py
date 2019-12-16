@@ -524,9 +524,9 @@ def main():
 	p_renderer_tracker 	= mp.Process(target=renderer_tracker, args=(lock, mp_event))
 	p_renderer_tracker2 = mp.Process(target=renderer_tracker2, args=(lock, mp_event))
 	p_renderer_pose_only = mp.Process(target=renderer_pose_only, args=(lock, mp_event))
-	p_renderer_tracker2.start()
+	#p_renderer_tracker2.start()
 	#p_renderer_poser.start()
-	#p_renderer_tracker.start()
+	p_renderer_tracker.start()
 	p_renderer_pose_only.start()
 
 	if args.file is not None:
