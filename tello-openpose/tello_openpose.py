@@ -33,8 +33,11 @@ log = logging.getLogger("TellOpenpose")
 log.setLevel(logging.CRITICAL)
 av.logging.set_level(av.logging.PANIC)
 
-def distance(A, B):
-	return int(sqrt((B[0]-A[0])**2 + (B[1]-A[1])**2))
+#def distance(A, B):
+#	return int(sqrt((B[0]-A[0])**2 + (B[1]-A[1])**2))
+
+def distance (A, B):
+	return np.linalg.norm(A-B)
 
 def angle (A, B, C):
 	''' Calculate the angle between segment(A,p2) and segment (p2,p3) '''
@@ -326,7 +329,6 @@ class TelloController(object):
 
 	def check_pose(self, pose):
 		''' Check if we detect a pose in the body detected by PosetNet '''
-		
 		try:
 			vert_angle_right_arm = vertical_angle(pose.keypoints['right wrist'].xy, pose.keypoints['right elbow'].xy)
 		except:
@@ -344,13 +346,12 @@ class TelloController(object):
 		except:
 			right_hand_up = None
 
-		print (left_hand_up, right_hand_up)
-
+		print (right_hand_up, left_hand_up)
 		if right_hand_up:
 			if not left_hand_up:
 				# Only right arm up
-				if 'right ear' in pose.keypoints and (pose.keypoints['right ear'].xy[0]-pose.keypoints['neck'].xy[0])*(pose.keypoints['right wrist'].xy[0]-pose.keypoints['neck'].xy[0])>0:
-				# Right ear and right hand on the same side
+				if 'right shoulder' in pose.keypoints and (pose.keypoints['right shoulder'].xy[0]-pose.keypoints['neck'].xy[0])*(pose.keypoints['right wrist'].xy[0]-pose.keypoints['neck'].xy[0])>0:
+				# Right shoudler and right hand on the same side
 					if vert_angle_right_arm:
 						if vert_angle_right_arm < -15:
 							return C_RIGHT_ARM_UP_OPEN
@@ -366,17 +367,16 @@ class TelloController(object):
 					ear_dist = distance(pose.keypoints['right ear'].xy, pose.keypoints['left ear'].xy)
 					if distance(pose.keypoints['right wrist'].xy, pose.keypoints['left ear'].xy)<ear_dist/3 and distance(l_wrist,l_ear)<ear_dist/3:
 						return C_HANDS_ON_EARS
-				# Check if boths hands are closed to each other and above ears 
-				# (check right hand is above right ear is enough since hands are closed to each other)
-				if pose.shoulders_width and 'right ear' in pose.keypoints:
-					near_dist = pose.shoulders_width/3
-					if pose.keypoints['right ear'].xy[1] > pose.keypoints['right wrist'].xy[1] and distance(pose.keypoints['right wrist'].xy, pose.keypoints['left wrist'].xy) < near_dist:
+				# Check if boths hands are closed to each other and above nose
+				if pose.shoulders_width and 'nose' in pose.keypoints:
+					near_dist = pose.shoulders_width
+					if pose.keypoints['nose'].xy[1] > pose.keypoints['right wrist'].xy[1] and distance(pose.keypoints['right wrist'].xy, pose.keypoints['left wrist'].xy) < near_dist:
 						return C_CLOSE_HANDS_UP
 		else:
 			if left_hand_up:
 				# Only left arm up
-				if 'left ear' in pose.keypoints and (pose.keypoints['left ear'].xy[0]-pose.keypoints['neck'].xy[0])*(pose.keypoints['left wrist'].xy[0]-pose.keypoints['neck'].xy[0])>0:
-					# Left ear and left hand on the same side
+				if 'left shoulder' in pose.keypoints and (pose.keypoints['left shoulder'].xy[0]-pose.keypoints['neck'].xy[0])*(pose.keypoints['left wrist'].xy[0]-pose.keypoints['neck'].xy[0])>0:
+					# Left shoudler and left hand on the same side
 					if vert_angle_left_arm:
 						if vert_angle_left_arm < -15:
 							return C_LEFT_ARM_UP_CLOSED
@@ -442,7 +442,7 @@ class TelloController(object):
 					# Do we recognize a predefined gesture ?
 					self.pose = poses[0]
 					self.gesture = self.check_pose(self.pose)
-					if self.gesture:
+					if self.gesture is not None:
 						# We trigger the associated action
 						log.info(f"pose detected : {self.pose}")
 						if self.gesture == C_HANDS_ON_NECK or self.gesture == C_HANDS_ON_EARS:
@@ -465,12 +465,12 @@ class TelloController(object):
 						elif self.gesture == C_LEFT_ARM_UP_OPEN:
 							log.info("GOING BACKWARD from pose")
 							self.axis_speed[C_PITCH] = -self.def_speed[C_PITCH]
-						elif self.pose == C_CLOSE_HANDS_UP:
+						elif self.gesture == C_CLOSE_HANDS_UP:
 							# Locked distance mode
 							if self.keep_distance is None:
 								if  time.time() - self.timestamp_keep_distance > 2:
 									# The first frame of a serie to activate the distance keeping
-									self.keep_distance = pose.shoulders_width
+									self.keep_distance = self.pose.shoulders_width
 									self.timestamp_keep_distance = time.time()
 									log.info(f"KEEP DISTANCE {self.keep_distance}")
 									self.pid_pitch = PID(0.5,0.04,0.3,setpoint=0,output_limits=(-50,50))

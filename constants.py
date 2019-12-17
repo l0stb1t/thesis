@@ -23,7 +23,7 @@ C_LEAR = 3
 
 C_KP_NAMES = (
 	'nose', 'left eye', 'right eye', 'left ear', 'right ear',
-	'left shoulder', 'right shoudler',
+	'left shoulder', 'right shoulder',
 	'left elbow', 'right elbow',
 	'left wrist', 'right wrist',
 	'left hip', 'right hip',
@@ -36,7 +36,7 @@ C_PAIRS = ((C_LSHOULDER, C_LHIP), (C_RSHOULDER, C_RHIP), (C_LHIP, C_RHIP), (C_LK
 
 C_NKP 		= 19
 C_MAXPOSE 	= 10
-C_KP_THRESHOLD = 0.3
+C_KP_THRESHOLD = 0.25
 C_PSCORE_THRESHOLD = 0.2
 
 C_RED = (255, 0, 0)
