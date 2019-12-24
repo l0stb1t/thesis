@@ -226,7 +226,7 @@ def renderer_tracker(lock, mp_event):
 			pose_heights 	= np.zeros(C_MAXPOSE, dtype=np.uint32)
 			for i in range(nposes): # only take pose with score > C_PSCORE_THRESHOLD
 				if pose_scores[i] >= C_PSCORE_THRESHOLD:
-					top, bottom = get_bound_box(kps_coords[i], kps_scores[i])
+					top, bottom = get_boundbox(kps_coords[i], kps_scores[i])
 					height = bottom[1] - top[1]
 					pose_heights[i] = height
 					count += 1
@@ -244,8 +244,8 @@ def renderer_tracker(lock, mp_event):
 				for i in range(0, min(nposes, C_NTRACK)): # extract new feature of C_NTRACK most highest score pose
 					kps_coord 		= kps_coords[sort[i]]
 					kps_score 		= kps_scores[sort[i]]
-					#top, bottom 	= draw_bound_box(surf, kps_coord, kps_score, C_BLUE)
-					top,  bottom	= get_bound_box(kps_coord, kps_score)
+					#top, bottom 	= draw_boundbox(surf, kps_coord, kps_score, C_BLUE)
+					top,  bottom	= get_boundbox(kps_coord, kps_score)
 					mask = np.zeros(frame.shape[:-1], dtype=np.uint8) # init mask, mask have the same shape as the frame (y, x)
 					mask[top[1]:bottom[1], top[0]:bottom[0]] = 1
 					f = cv2.goodFeaturesToTrack(current_frame, mask=mask, **feature_params) # extract features
@@ -265,8 +265,8 @@ def renderer_tracker(lock, mp_event):
 					for pose_idx in sort:
 						kps_coord 		= kps_coords[pose_idx]
 						kps_score 		= kps_scores[pose_idx]
-						#top, bottom 	= draw_bound_box(surf, kps_coord, kps_score, C_BLUE)
-						top,  bottom	= get_bound_box(kps_coord, kps_score)
+						#top, bottom 	= draw_boundbox(surf, kps_coord, kps_score, C_BLUE)
+						top,  bottom	= get_boundbox(kps_coord, kps_score)
 
 						mask = np.zeros(frame.shape[:-1], dtype=np.uint8) # init mask, mask have the same shape as the frame (y, x)
 						mask[top[1]:bottom[1], top[0]:bottom[0]] = 1 
@@ -325,18 +325,10 @@ def renderer_tracker2(lock, mp_event):
 	pygame.init()
 	display = pygame.display.set_mode(appsink_size)
 	pygame.display.set_caption('tracker2')
-	
-	C_NTRACK2 = 10
-	C_DISTANCE_THRESHOLD = 50
-	
-	features 		= [None]*C_NTRACK2
-	feature_count 	= 0
-	colors			= [C_YELLOW, C_GREEN] + [rand_color() for i in range(32)]
-	prev_poses 		= []
-	
+		
 	frame_count = 0
+	tracker = Tracker()
 	start_time = time.time()
-	
 	while RUNNING:
 		if args.interact:
 			mp_event.wait()
@@ -346,45 +338,9 @@ def renderer_tracker2(lock, mp_event):
 		surf, frame = get_surf()
 		poses = get_pose_shared_data2(lock)
 		
-		''' assign color id to each pose found in the first frame'''
-		if len(prev_poses) == 0:
-			prev_poses[:] = poses
-			print ('%d new pose' % len(prev_poses))
-			for pose in prev_poses:
-				pose.color = colors.pop(0)
-		else:
-			t = []
-			''' for each new pose in the new frame
-				calculate distance to each pose in the prev frame
-			'''
-			for i, pose in enumerate(poses):
-				print ('%d poses in frame' % len(poses))
-				match = {}
-				match_idx 		= None
-				min_distance 	= 1024
-				for j, prev_pose in enumerate(prev_poses):
-					d = prev_pose.generic_distance(pose)
-					''' match with the pose with closest distance '''
-					if d < min_distance and d < C_DISTANCE_THRESHOLD:
-						match_idx = j
-						min_distance = d
-						
-				''' if we found a match '''
-				if match_idx is not None:
-					pose.color = prev_poses[match_idx].color
-					t.append(pose)
-					del prev_poses[match_idx]
-					pose.draw_pose(surf)
-				else:
-					''' the new pose doesn't match any prev pose. Assign it a new ID '''
-					pose.color = colors.pop()
-					t.append(pose)
-					
-			for pose in prev_poses:
-				pose.ttl -= 1
-				if pose.ttl:
-					t.append(pose)
-			prev_poses = t
+		tracker.feed(poses)
+		for pose in poses:
+			pose.draw_pose(surf)
 				
 		display.blit(surf, (0, 0))
 		pygame.display.update()
@@ -399,69 +355,51 @@ def renderer_tracker2(lock, mp_event):
 	print ('Tracker2 FPS:', frame_count/(end_time - start_time))
 	pygame.quit()
 
-def renderer_poser(lock, mp_event):
-	global RUNNING, PAUSE
-	global NPOSES, FRAMEBUFFER, KP_BUFFER, KP_SCORE_BUFFER, POSESCORE_BUFFER
-
+def renderer_simple_gesture(lock, mp_event):
+	global args, RUNNING
+	
 	pygame.init()
 	display = pygame.display.set_mode(appsink_size)
-	pygame.display.set_caption('poser')
-
+	pygame.display.set_caption('simple_gesture')
+	
 	frame_count = 0
 	start_time = time.time()
-	while RUNNING:			
-		if not PAUSE:
-			frame_count += 1
-			surf, frame = get_surf()
-			lock.acquire()
-			nposes = NPOSES.value
-			if nposes:
-				kps_coords 	= np.ctypeslib.as_array(KP_BUFFER).copy()
-				kps_scores 	= np.ctypeslib.as_array(KP_SCORE_BUFFER).copy()
-				pose_scores = np.ctypeslib.as_array(POSESCORE_BUFFER).copy()
-				lock.release()
-				
-				for i in range(nposes):
-					if pose_scores[i] >= C_PSCORE_THRESHOLD:
-						kps_coord = kps_coords[i]
-						kps_score = kps_scores[i]
-							
-						draw_pose(surf, kps_coord, kps_score)
-						top, bottom = draw_bound_box(surf, kps_coord, kps_score)
-						pose = check_pose(kps_coord, kps_score)
-						if pose is not None:
-							LABELS[i] = (POSE_TEXTS[pose], top)
-						else:
-							LABELS[i] = None
-						'''
-						print (pose)
-						if pose == C_LEFT_ARM_UP_OPEN or pose == C_LEFT_ARM_UP_CLOSED:
-							pygame.draw.circle(surf, C_RED, kps_coord[C_LWRIST].astype(np.uint32), 10)
-						if pose == C_RIGHT_ARM_UP_OPEN or pose == C_RIGHT_ARM_UP_CLOSED:
-							pygame.draw.circle(surf, C_GREEN, kps_coord[C_RWRIST].astype(np.uint32), 10)
-						'''
+	while RUNNING:
+		frame_count += 1
+		
+		if args.interact:
+			mp_event.wait()
+			mp_event.clear()
+		
+		surf, frame = get_surf()
+		poses = get_pose_shared_data2(lock)
+		for pose in poses:
+			pose.draw_pose(surf)
+			ana = Analyzer(pose)
+			
+			if ana.g_standing:
+				surf.blit(C_STANDING, pose.get_boundbox()[1])
+			elif ana.g_sitting:
+				surf.blit(C_SITTING, pose.get_boundbox()[1])
 			else:
-				lock.release()
-				
-			display.blit(surf, (0, 0))
-			for i in range(nposes):
-				if LABELS[i]:
-					display.blit(LABELS[i][0], LABELS[i][1])
-			pygame.display.update()
-			pygame.time.delay(15)
+				surf.blit(C_UNKNOW, pose.get_boundbox()[1])
+			
+			gesture_id = ana.simple_gesture()
+			if gesture_id is not None:
+				surf.blit(GESTURE_NAMES[gesture_id], pose.get_boundbox()[0])
 			
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
 				RUNNING.value = 0
 				break
-			elif event.type == pygame.KEYDOWN:
-				if event.key == pygame.K_p:
-					PAUSE.value ^= 1
-					
+				
+		display.blit(surf, (0, 0))
+		pygame.display.update()
+		pygame.time.delay(15)
 	end_time = time.time()
-	print ('Poser FPS:', frame_count/(end_time - start_time))
-	pygame.quit()
-
+	print ('renderer_simple_gesture:', frame_count/(end_time - start_time)) 
+	
+		
 def renderer_pose_only(lock, mp_event):
 	global args, RUNNING
 	
@@ -520,14 +458,15 @@ def main():
 	lock 		= mp.Lock()
 	mp_event 	= mp.Event()
 	
-	p_renderer_poser 	= mp.Process(target=renderer_poser, args=(lock, mp_event))
 	p_renderer_tracker 	= mp.Process(target=renderer_tracker, args=(lock, mp_event))
 	p_renderer_tracker2 = mp.Process(target=renderer_tracker2, args=(lock, mp_event))
-	p_renderer_pose_only = mp.Process(target=renderer_pose_only, args=(lock, mp_event))
-	#p_renderer_tracker2.start()
+	#p_renderer_pose_only = mp.Process(target=renderer_pose_only, args=(lock, mp_event))
+	#p_renderer_simple_gesture = mp.Process(target=renderer_simple_gesture, args=(lock, mp_event))
+	#p_renderer_simple_gesture.start()
+	p_renderer_tracker2.start()
 	#p_renderer_poser.start()
 	p_renderer_tracker.start()
-	p_renderer_pose_only.start()
+	#p_renderer_pose_only.start()
 
 	if args.file is not None:
 		cap = cv2.VideoCapture(args.file)
@@ -536,7 +475,6 @@ def main():
 		cap.set(cv2.CAP_PROP_FRAME_WIDTH, src_size[0])
 		cap.set(cv2.CAP_PROP_FRAME_HEIGHT, src_size[1])
 
-	
 	frame_count = 0
 	start_time = time.time()
 	pose_height = np.zeros(C_MAXPOSE, dtype=np.uint32)
@@ -544,6 +482,7 @@ def main():
 		if not PAUSE:			
 			try:
 				frame_count += 1
+				# t1 = time.time()
 				cap_res, cap_frame 	= cap.read()
 				input_img 			= cv2.resize(cap_frame, appsink_size, cv2.INTER_NEAREST)
 				input_img 			= cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB).astype(np.uint8)
@@ -551,7 +490,8 @@ def main():
 				# opencv ouput frame in (y, x) but use (x, y) point format ¯\_(ツ)_/¯
 				# print (input_img.shape)
 				nposes, pose_scores, kps, kps_score = engine.DetectPosesInImage(input_img)
-
+				# t2 = time.time()
+				# print ('PoseNet time:', (t2 - t1)*1000)
 				lock.acquire()
 				FRAMEBUFFER[:] 					= np.ctypeslib.as_ctypes(input_img)
 				if nposes:				

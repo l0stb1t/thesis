@@ -34,16 +34,16 @@ C_KP_NAMES = (
 
 C_PAIRS = ((C_LSHOULDER, C_LHIP), (C_RSHOULDER, C_RHIP), (C_LHIP, C_RHIP), (C_LKNEE, C_LHIP), (C_RKNEE, C_RHIP), (C_LANKLE, C_LKNEE), (C_RANKLE, C_RKNEE), (C_RWRIST, C_RELBOW), (C_LWRIST, C_LELBOW), (C_RELBOW, C_RSHOULDER), (C_LELBOW, C_LSHOULDER), (C_LSHOULDER, C_RSHOULDER))
 
-C_NKP 		= 19
-C_MAXPOSE 	= 10
-C_KP_THRESHOLD = 0.25
-C_PSCORE_THRESHOLD = 0.2
+C_NKP 				= 19
+C_MAXPOSE 			= 10
+C_KP_THRESHOLD 		= 0.05
+C_PSCORE_THRESHOLD 	= 0.3
 
-C_RED = (255, 0, 0)
-C_GREEN = (0, 255, 0)
-C_BLUE = (0, 0, 255)
-C_YELLOW = (255, 255, 0)
-C_COLORS = (C_RED, C_GREEN, C_BLUE)
+C_RED 		= (255, 0, 0)
+C_GREEN 	= (0, 255, 0)
+C_BLUE 		= (0, 0, 255)
+C_YELLOW 	= (255, 255, 0)
+C_COLORS 	= (C_RED, C_GREEN, C_BLUE)
 
 C_RIGHT_ARM_UP_OPEN 			= 0
 C_RIGHT_ARM_UP_CLOSED 			= 1
@@ -55,6 +55,11 @@ C_HANDS_ON_EARS 				= 6
 C_CLOSE_HANDS_UP 				= 7
 C_HANDS_ON_NECK 				= 8
 
+C_GESTURE_NAMES = [
+	'right arm up open', 'right arm up closed', 'right hand on left ear',
+	'left arm up open', 'left arm up closed', 'left hand on right ear',
+	'hands on ear', 'close hands up', 'hands on neck'
+]
 
 C_YAW 	= 0
 C_PITCH = 1
@@ -65,18 +70,22 @@ pygame.font.init()
 myfont = pygame.font.SysFont(None, 20)
 LABELS = [None,]*10
 
-POSE_TEXTS = [None,] * 9
-POSE_TEXTS[C_RIGHT_ARM_UP_OPEN] 			= myfont.render('RIGHT_ARM_UP_OPEN', False, C_RED, None)
-POSE_TEXTS[C_RIGHT_ARM_UP_CLOSED] 			= myfont.render('RIGHT_ARM_UP_CLOSED', False, C_RED, None)
-POSE_TEXTS[C_RIGHT_HAND_ON_LEFT_EAR] 		= myfont.render('RIGHT_HAND_ON_LEFT_EAR', False, C_RED, None)
+GESTURE_NAMES = [None,] * 9
+GESTURE_NAMES[C_RIGHT_ARM_UP_OPEN] 		= myfont.render('RIGHT_ARM_UP_OPEN', False, C_GREEN, None)
+GESTURE_NAMES[C_RIGHT_ARM_UP_CLOSED] 	= myfont.render('RIGHT_ARM_UP_CLOSED', False, C_GREEN, None)
+GESTURE_NAMES[C_RIGHT_HAND_ON_LEFT_EAR] = myfont.render('RIGHT_HAND_ON_LEFT_EAR', False, C_GREEN, None)
 
-POSE_TEXTS[C_LEFT_ARM_UP_OPEN] 				= myfont.render('LEFT_ARM_UP_OPEN', False, C_RED, None)
-POSE_TEXTS[C_LEFT_ARM_UP_CLOSED] 			= myfont.render('LEFT_ARM_UP_CLOSED', False, C_RED, None)
-POSE_TEXTS[C_LEFT_HAND_ON_RIGHT_EAR] 		= myfont.render('C_LEFT_HAND_ON_RIGHT_EAR', False, C_RED, None)
+GESTURE_NAMES[C_LEFT_ARM_UP_OPEN] 		= myfont.render('LEFT_ARM_UP_OPEN', False, C_GREEN, None)
+GESTURE_NAMES[C_LEFT_ARM_UP_CLOSED] 	= myfont.render('LEFT_ARM_UP_CLOSED', False, C_GREEN, None)
+GESTURE_NAMES[C_LEFT_HAND_ON_RIGHT_EAR] = myfont.render('C_LEFT_HAND_ON_RIGHT_EAR', False, C_GREEN, None)
 
-POSE_TEXTS[C_HANDS_ON_EARS] 				= myfont.render('HANDS_ON_EARS', False, C_RED, None)
-POSE_TEXTS[C_CLOSE_HANDS_UP] 				= myfont.render('CLOSE_HANDS_UP', False, C_RED, None)
-POSE_TEXTS[C_HANDS_ON_NECK] 				= myfont.render('HANDS_ON_NECK', False, C_RED, None)
+GESTURE_NAMES[C_HANDS_ON_EARS] 			= myfont.render('HANDS_ON_EARS', False, C_GREEN, None)
+GESTURE_NAMES[C_CLOSE_HANDS_UP] 		= myfont.render('CLOSE_HANDS_UP', False, C_GREEN, None)
+GESTURE_NAMES[C_HANDS_ON_NECK] 			= myfont.render('HANDS_ON_NECK', False, C_GREEN, None)
+
+C_STANDING = myfont.render('STANDING', False, C_GREEN, None)
+C_SITTING = myfont.render('SITTING', False, C_BLUE, None)
+C_UNKNOW = myfont.render('UNKNOW', False, C_RED, None)
 
 # params for ShiTomasi corner detection
 feature_params = dict(maxCorners = 10,
