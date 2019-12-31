@@ -61,31 +61,26 @@ C_GESTURE_NAMES = [
 	'hands on ear', 'close hands up', 'hands on neck'
 ]
 
-C_YAW 	= 0
-C_PITCH = 1
-C_ROLL 	= 2
-C_THROTTLE = 3
-
 pygame.font.init()
-myfont = pygame.font.SysFont(None, 20)
+FONT = pygame.font.SysFont(None, 20)
 LABELS = [None,]*10
 
 GESTURE_NAMES = [None,] * 9
-GESTURE_NAMES[C_RIGHT_ARM_UP_OPEN] 		= myfont.render('RIGHT_ARM_UP_OPEN', False, C_GREEN, None)
-GESTURE_NAMES[C_RIGHT_ARM_UP_CLOSED] 	= myfont.render('RIGHT_ARM_UP_CLOSED', False, C_GREEN, None)
-GESTURE_NAMES[C_RIGHT_HAND_ON_LEFT_EAR] = myfont.render('RIGHT_HAND_ON_LEFT_EAR', False, C_GREEN, None)
+GESTURE_NAMES[C_RIGHT_ARM_UP_OPEN] 		= FONT.render('RIGHT_ARM_UP_OPEN', False, C_GREEN, None)
+GESTURE_NAMES[C_RIGHT_ARM_UP_CLOSED] 	= FONT.render('RIGHT_ARM_UP_CLOSED', False, C_GREEN, None)
+GESTURE_NAMES[C_RIGHT_HAND_ON_LEFT_EAR] = FONT.render('RIGHT_HAND_ON_LEFT_EAR', False, C_GREEN, None)
 
-GESTURE_NAMES[C_LEFT_ARM_UP_OPEN] 		= myfont.render('LEFT_ARM_UP_OPEN', False, C_GREEN, None)
-GESTURE_NAMES[C_LEFT_ARM_UP_CLOSED] 	= myfont.render('LEFT_ARM_UP_CLOSED', False, C_GREEN, None)
-GESTURE_NAMES[C_LEFT_HAND_ON_RIGHT_EAR] = myfont.render('C_LEFT_HAND_ON_RIGHT_EAR', False, C_GREEN, None)
+GESTURE_NAMES[C_LEFT_ARM_UP_OPEN] 		= FONT.render('LEFT_ARM_UP_OPEN', False, C_GREEN, None)
+GESTURE_NAMES[C_LEFT_ARM_UP_CLOSED] 	= FONT.render('LEFT_ARM_UP_CLOSED', False, C_GREEN, None)
+GESTURE_NAMES[C_LEFT_HAND_ON_RIGHT_EAR] = FONT.render('C_LEFT_HAND_ON_RIGHT_EAR', False, C_GREEN, None)
 
-GESTURE_NAMES[C_HANDS_ON_EARS] 			= myfont.render('HANDS_ON_EARS', False, C_GREEN, None)
-GESTURE_NAMES[C_CLOSE_HANDS_UP] 		= myfont.render('CLOSE_HANDS_UP', False, C_GREEN, None)
-GESTURE_NAMES[C_HANDS_ON_NECK] 			= myfont.render('HANDS_ON_NECK', False, C_GREEN, None)
+GESTURE_NAMES[C_HANDS_ON_EARS] 			= FONT.render('HANDS_ON_EARS', False, C_GREEN, None)
+GESTURE_NAMES[C_CLOSE_HANDS_UP] 		= FONT.render('CLOSE_HANDS_UP', False, C_GREEN, None)
+GESTURE_NAMES[C_HANDS_ON_NECK] 			= FONT.render('HANDS_ON_NECK', False, C_GREEN, None)
 
-C_STANDING = myfont.render('STANDING', False, C_GREEN, None)
-C_SITTING = myfont.render('SITTING', False, C_BLUE, None)
-C_UNKNOW = myfont.render('UNKNOW', False, C_RED, None)
+C_STANDING = FONT.render('STANDING', False, C_GREEN, None)
+C_SITTING = FONT.render('SITTING', False, C_BLUE, None)
+C_UNKNOW = FONT.render('UNKNOW', False, C_RED, None)
 
 # params for ShiTomasi corner detection
 feature_params = dict(maxCorners = 10,

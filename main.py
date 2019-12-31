@@ -44,114 +44,12 @@ elif args.res == '1280x720':
 print('Loading model: ', model)
 engine = PoseEngine(model, mirror=args.mirror)
 
-def check_pose(keypoint_coord, keypoint_score):
-	if keypoint_score[-1] > C_KP_THRESHOLD:
-		neck = keypoint_coord[-1]
-	else:
-		neck = None
-
-	if keypoint_score[10] > C_KP_THRESHOLD:
-		r_wrist = keypoint_coord[10]
-	else:
-		r_wrist = None
-
-	if keypoint_score[9] > C_KP_THRESHOLD:
-		l_wrist = keypoint_coord[9]
-	else:
-		l_wrist = None
-
-	if keypoint_score[8] > C_KP_THRESHOLD:
-		r_elbow = keypoint_coord[8]
-	else:
-		r_elbow = None
-
-	if keypoint_score[7] > C_KP_THRESHOLD:
-		l_elbow = keypoint_coord[7]
-	else:
-		l_elbow = None
-
-	if keypoint_score[6] > C_KP_THRESHOLD:
-		r_shoulder = keypoint_coord[6]
-	else:
-		r_shoulder = None
-
-	if keypoint_score[5] > C_KP_THRESHOLD:
-		l_shoulder = keypoint_coord[5]
-	else:
-		l_shoulder = None
-
-	if keypoint_score[4] > C_KP_THRESHOLD:
-		r_ear = keypoint_coord[4]
-	else:
-		r_ear = None
-
-	if keypoint_score[3] > C_KP_THRESHOLD:
-		l_ear = keypoint_coord[3]
-	else:
-		l_ear = None
-
-	shoulders_width = distance(r_shoulder,l_shoulder) if (r_shoulder is not None) and (l_shoulder is not None) else None
-
-	vert_angle_right_arm = vertical_angle(r_wrist, r_elbow)
-	vert_angle_left_arm = vertical_angle(l_wrist, l_elbow)
-	
-	left_hand_up = (neck is not None) and (l_wrist is not None) and l_wrist[1] < neck[1]
-	right_hand_up = (neck is not None) and (r_wrist is not None)  and r_wrist[1] < neck[1]
-	#print (left_hand_up, right_hand_up)
-	if right_hand_up:
-		if not left_hand_up:
-			# Only right arm up
-			if (r_ear is not None) and (r_ear[0]-neck[0])*(r_wrist[0]-neck[0])>0:
-			# Right ear and right hand on the same side
-				if vert_angle_right_arm:
-					if vert_angle_right_arm < -15:
-						return C_RIGHT_ARM_UP_OPEN
-					if 15 < vert_angle_right_arm < 90:
-						return C_RIGHT_ARM_UP_CLOSED
-			elif (l_ear is not None) and shoulders_width and distance(r_wrist,l_ear) < shoulders_width/4:
-				# Right hand close to left ear
-				return C_RIGHT_HAND_ON_LEFT_EAR
-		else:
-			# Both hands up
-			# Check if both hands are on the ears
-			if (r_ear is not None) and (l_ear is not None):
-				ear_dist = distance(r_ear,l_ear)
-				if distance(r_wrist,r_ear)<ear_dist/3 and distance(l_wrist,l_ear)<ear_dist/3:
-					return C_HANDS_ON_EARS
-			# Check if boths hands are closed to each other and above ears 
-			# (check right hand is above right ear is enough since hands are closed to each other)
-			if shoulders_width and (r_ear is not None):
-				near_dist = shoulders_width/3
-				if r_ear[1] > r_wrist[1] and distance(r_wrist, l_wrist) < near_dist :
-					return C_CLOSE_HANDS_UP
-	else:
-		if left_hand_up:
-			# Only left arm up
-			if (l_ear is not None) and (l_ear[0]-neck[0])*(l_wrist[0]-neck[0])>0:
-				# Left ear and left hand on the same side
-				if vert_angle_left_arm:
-					if vert_angle_left_arm < -15:
-						return C_LEFT_ARM_UP_CLOSED
-					if 15 < vert_angle_left_arm < 90:
-						return C_LEFT_ARM_UP_OPEN
-			elif (r_ear is not None) and shoulders_width and distance(l_wrist,r_ear) < shoulders_width/4:
-				# Left hand close to right ear
-				return C_LEFT_HAND_ON_RIGHT_EAR
-		else:
-			# Both wrists under the neck
-			if (neck is not None) and (shoulders_width is not None) and (r_wrist is not None) and (l_wrist is not None):
-				near_dist = shoulders_width/3
-				if distance(r_wrist, neck) < near_dist and distance(l_wrist, neck) < near_dist :
-					return C_HANDS_ON_NECK
-	return None
-
-def get_frame():
-	return np.ctypeslib.as_array(FRAMEBUFFER).copy()
-	
-def get_surf():
+def get_surf(lock):
     global FRAMEBUFFER
     
+    lock.acquire()
     frame = np.ctypeslib.as_array(FRAMEBUFFER).copy()
+    lock.release()
     ''' Pygame use (x, y) frame format so have to convert it but return the original frame for later use with opencv '''
     surf = pygame.surfarray.make_surface(np.rot90(frame)[::-1])
     return surf, frame
@@ -202,9 +100,7 @@ def get_pose_shared_data2(lock):
 def renderer_tracker(lock, mp_event):
 	global args, RUNNING
 	
-	pygame.init()
-	display = pygame.display.set_mode(appsink_size)
-	pygame.display.set_caption('tracker')
+	display = init_pygame_window('tracker')
 	
 	features 		= [None]*C_NTRACK
 	feature_count 	= 0
@@ -218,7 +114,7 @@ def renderer_tracker(lock, mp_event):
 			mp_event.clear()
 		
 		frame_count += 1
-		surf, frame = get_surf()
+		surf, frame = get_surf(lock)
 		nposes, kps_coords, kps_scores, pose_scores = get_pose_shared_data(lock)
 		
 		count = 0
@@ -322,9 +218,7 @@ def renderer_tracker(lock, mp_event):
 def renderer_tracker2(lock, mp_event):
 	global args, RUNNING
 	
-	pygame.init()
-	display = pygame.display.set_mode(appsink_size)
-	pygame.display.set_caption('tracker2')
+	display = init_pygame_window('tracker2')
 		
 	frame_count = 0
 	tracker = Tracker()
@@ -335,7 +229,7 @@ def renderer_tracker2(lock, mp_event):
 			mp_event.clear()
 		
 		frame_count += 1
-		surf, frame = get_surf()
+		surf, frame = get_surf(lock)
 		poses = get_pose_shared_data2(lock)
 		
 		tracker.feed(poses)
@@ -371,7 +265,7 @@ def renderer_simple_gesture(lock, mp_event):
 			mp_event.wait()
 			mp_event.clear()
 		
-		surf, frame = get_surf()
+		surf, frame = get_surf(lock)
 		poses = get_pose_shared_data2(lock)
 		for pose in poses:
 			pose.draw_pose(surf)
@@ -399,7 +293,6 @@ def renderer_simple_gesture(lock, mp_event):
 	end_time = time.time()
 	print ('renderer_simple_gesture:', frame_count/(end_time - start_time)) 
 	
-		
 def renderer_pose_only(lock, mp_event):
 	global args, RUNNING
 	
@@ -419,7 +312,7 @@ def renderer_pose_only(lock, mp_event):
 			mp_event.clear()
 		
 		frame_count += 1
-		surf, frame = get_surf()
+		surf, frame = get_surf(lock)
 		nposes, kps_coords, kps_scores, pose_scores = get_pose_shared_data(lock)
 		
 		for i in range(nposes):
@@ -461,8 +354,8 @@ def main():
 	p_renderer_tracker 	= mp.Process(target=renderer_tracker, args=(lock, mp_event))
 	p_renderer_tracker2 = mp.Process(target=renderer_tracker2, args=(lock, mp_event))
 	#p_renderer_pose_only = mp.Process(target=renderer_pose_only, args=(lock, mp_event))
-	#p_renderer_simple_gesture = mp.Process(target=renderer_simple_gesture, args=(lock, mp_event))
-	#p_renderer_simple_gesture.start()
+	p_renderer_simple_gesture = mp.Process(target=renderer_simple_gesture, args=(lock, mp_event))
+	p_renderer_simple_gesture.start()
 	p_renderer_tracker2.start()
 	#p_renderer_poser.start()
 	p_renderer_tracker.start()
