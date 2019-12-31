@@ -436,7 +436,7 @@ class TelloController(object):
 		if self.tracking:
 			LOG.info("ACTIVATE TRACKING")
 			self.pid_roll 		= PID(2, 0, 0.05, setpoint=180, output_limits=(-100, 100))
-			self.pid_yaw 		= PID(C_YAW_KP, 		C_YAW_KI, 		C_YAW_KD, setpoint=0, output_limits=(-100, 100))
+			self.pid_yaw 		= PID(C_YAW_KP, 		C_YAW_KI, 		C_YAW_KD, setpoint=0, output_limits=(-30, 30))
 			self.pid_pitch		= PID(C_PITCH_KP, 		C_PITCH_KI, 	C_PITCH_KD, setpoint=0, output_limits=(-100, 100))
 			self.pid_throttle 	= PID(C_THROTTLE_KP, 	C_THROTTLE_KI, 	C_THROTTLE_KD, setpoint=0, output_limits=(-100, 100))
 		else:

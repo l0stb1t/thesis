@@ -15,6 +15,9 @@ from multiprocessing import sharedctypes
 from constants import *
 from util import *
 
+from edgetpu.detection.engine import DetectionEngine
+from PIL import Image
+
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', help='.tflite model path.', required=False)
 parser.add_argument('--cam_id', type=int, default=0)
@@ -42,7 +45,8 @@ elif args.res == '1280x720':
 	model = args.model or default_model % (721, 1281)
 
 print('Loading model: ', model)
-engine = PoseEngine(model, mirror=args.mirror)
+pose_engine = PoseEngine(model, mirror=args.mirror)
+face_engine = DetectionEngine('/home/pi/models/mobilenet_ssd_v2_face_quant_postprocess_edgetpu.tflite')
 
 def get_surf(lock):
     global FRAMEBUFFER
@@ -379,10 +383,14 @@ def main():
 				cap_res, cap_frame 	= cap.read()
 				input_img 			= cv2.resize(cap_frame, appsink_size, cv2.INTER_NEAREST)
 				input_img 			= cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB).astype(np.uint8)
+				pil_frame 			= Image.fromarray(input_img)
+				
 				# input_img = cv2.GaussianBlur(input_img, (3, 3), cv2.BORDER_DEFAULT)
 				# opencv ouput frame in (y, x) but use (x, y) point format ¯\_(ツ)_/¯
 				# print (input_img.shape)
-				nposes, pose_scores, kps, kps_score = engine.DetectPosesInImage(input_img)
+				nposes, pose_scores, kps, kps_score = pose_engine.DetectPosesInImage(input_img)
+				faces = face_engine.detect_with_image(pil_frame, threshold=0.05, keep_aspect_ratio=False, relative_coord=False, top_k=10)
+				print (faces)
 				# t2 = time.time()
 				# print ('PoseNet time:', (t2 - t1)*1000)
 				lock.acquire()
