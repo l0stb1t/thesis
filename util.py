@@ -206,7 +206,7 @@ class Analyzer:
 			right_leg_vert_agnle = self.vertical_angle(C_RHIP, C_RKNEE)
 						
 			for e in (left_leg_vert_angle, right_leg_vert_agnle):
-				if e and ( (e>=45 and e<=135) or (e<=-45 and e >=-135) ):
+				if e and (e<=-70 and e >=-110):
 					self.__g_standing = True
 				else:
 					self.__g_standing = False
@@ -220,7 +220,7 @@ class Analyzer:
 			right_leg_vert_agnle = self.vertical_angle(C_RHIP, C_RKNEE)
 						
 			for e in (left_leg_vert_angle, right_leg_vert_agnle):
-				if e and ( not (e>=45 and e<=135) or  not (e<=-45 and e >=-135) ):
+				if e and (not (e<=-70 and e >=-110)):
 					self.__g_sitting = True
 				else:
 					self.__g_sitting = False

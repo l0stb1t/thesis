@@ -104,7 +104,7 @@ def get_pose_shared_data2(lock):
 def renderer_tracker(lock, mp_event):
 	global args, RUNNING
 	
-	display = init_pygame_window('tracker')
+	display = init_pygame_window('tracking-optical flow')
 	
 	features 		= [None]*C_NTRACK
 	feature_count 	= 0
@@ -222,7 +222,7 @@ def renderer_tracker(lock, mp_event):
 def renderer_tracker2(lock, mp_event):
 	global args, RUNNING
 	
-	display = init_pygame_window('tracker2')
+	display = init_pygame_window('tracking-distance')
 		
 	frame_count = 0
 	tracker = Tracker()
@@ -276,11 +276,11 @@ def renderer_simple_gesture(lock, mp_event):
 			ana = Analyzer(pose)
 			
 			if ana.g_standing:
-				surf.blit(C_STANDING, pose.get_boundbox()[1])
+				surf.blit(C_STANDING, pose.get_boundbox()[0])
 			elif ana.g_sitting:
-				surf.blit(C_SITTING, pose.get_boundbox()[1])
+				surf.blit(C_SITTING, pose.get_boundbox()[0])
 			else:
-				surf.blit(C_UNKNOW, pose.get_boundbox()[1])
+				surf.blit(C_UNKNOW, pose.get_boundbox()[0])
 			
 			gesture_id = ana.simple_gesture()
 			if gesture_id is not None:
@@ -359,10 +359,10 @@ def main():
 	p_renderer_tracker2 = mp.Process(target=renderer_tracker2, args=(lock, mp_event))
 	#p_renderer_pose_only = mp.Process(target=renderer_pose_only, args=(lock, mp_event))
 	p_renderer_simple_gesture = mp.Process(target=renderer_simple_gesture, args=(lock, mp_event))
-	p_renderer_simple_gesture.start()
+	# p_renderer_simple_gesture.start()
 	p_renderer_tracker2.start()
 	#p_renderer_poser.start()
-	p_renderer_tracker.start()
+	# p_renderer_tracker.start()
 	#p_renderer_pose_only.start()
 
 	if args.file is not None:
@@ -383,14 +383,14 @@ def main():
 				cap_res, cap_frame 	= cap.read()
 				input_img 			= cv2.resize(cap_frame, appsink_size, cv2.INTER_NEAREST)
 				input_img 			= cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB).astype(np.uint8)
-				pil_frame 			= Image.fromarray(input_img)
+				# pil_frame 			= Image.fromarray(input_img)
 				
 				# input_img = cv2.GaussianBlur(input_img, (3, 3), cv2.BORDER_DEFAULT)
 				# opencv ouput frame in (y, x) but use (x, y) point format ¯\_(ツ)_/¯
 				# print (input_img.shape)
 				nposes, pose_scores, kps, kps_score = pose_engine.DetectPosesInImage(input_img)
-				faces = face_engine.detect_with_image(pil_frame, threshold=0.05, keep_aspect_ratio=False, relative_coord=False, top_k=10)
-				print (faces)
+				# faces = face_engine.detect_with_image(pil_frame, threshold=0.05, keep_aspect_ratio=False, relative_coord=False, top_k=10)
+				# print (faces)
 				# t2 = time.time()
 				# print ('PoseNet time:', (t2 - t1)*1000)
 				lock.acquire()
