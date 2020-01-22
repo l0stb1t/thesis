@@ -108,7 +108,7 @@ def renderer_tracker(lock, mp_event):
 	
 	features 		= [None]*C_NTRACK
 	feature_count 	= 0
-	colors			= [C_YELLOW, C_GREEN] + [rand_color() for i in range(C_NTRACK-2)]
+	colors			= [rand_color() for i in range(C_NTRACK)]
 	
 	frame_count = 0
 	start_time = time.time()
@@ -357,13 +357,13 @@ def main():
 	
 	p_renderer_tracker 	= mp.Process(target=renderer_tracker, args=(lock, mp_event))
 	p_renderer_tracker2 = mp.Process(target=renderer_tracker2, args=(lock, mp_event))
-	#p_renderer_pose_only = mp.Process(target=renderer_pose_only, args=(lock, mp_event))
+	p_renderer_pose_only = mp.Process(target=renderer_pose_only, args=(lock, mp_event))
 	p_renderer_simple_gesture = mp.Process(target=renderer_simple_gesture, args=(lock, mp_event))
-	# p_renderer_simple_gesture.start()
-	p_renderer_tracker2.start()
-	#p_renderer_poser.start()
+	
+	p_renderer_simple_gesture.start()
+	# p_renderer_tracker2.start()
 	# p_renderer_tracker.start()
-	#p_renderer_pose_only.start()
+	# p_renderer_pose_only.start()
 
 	if args.file is not None:
 		cap = cv2.VideoCapture(args.file)
@@ -406,7 +406,6 @@ def main():
 				if args.interact:
 					input('')
 					mp_event.set()
-					
 			except:
 				traceback.print_exc()
 				RUNNING.value = 0

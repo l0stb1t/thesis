@@ -101,15 +101,15 @@ def main():
 	
 	drone = init_drone()
 	
-	# p_recorder = Process(target=recorder)
-	# p_recorder.start()
+	p_recorder = Process(target=recorder)
+	p_recorder.start()
 	
 	lock 		= mp.Lock()
 	p_worker 	= Process(target=worker, args=(drone.sock.fileno(), lock))
 	p_worker.start()
 	
 	container = av.open(drone.get_video_stream())
-	frame_skip = 300
+	frame_skip = 350
 	fps = FPS()
 	for frame in container.decode(video=0):
 		fps.update()
@@ -147,9 +147,9 @@ class TelloController(object):
 		self.fly_mode 		 = None
 		self.throw_fly_timer = 0
 		
-		self.commands 			= (self.drone.clockwise, self.drone.forward, self.drone.right, self.drone.up)
-		self.axis_speed 		= np.zeros(4, dtype=np.int32)	 
-		self.prev_axis_speed 	= np.zeros(4, dtype=np.int32)
+		self.no_pose_counter = 0
+		
+		self.speed_vect 	 = np.zeros(4, dtype=np.int32)	 
 				   
 		self.drone.subscribe(self.drone.EVENT_FLIGHT_DATA, 		self.flight_data_handler)
 		self.drone.subscribe(self.drone.EVENT_LOG_DATA, 		self.log_data_handler)
@@ -302,10 +302,12 @@ class TelloController(object):
 			self.keep_distance = None
 			return
 		
-		poses = self.pn.eval(frame)
+		# poses = self.pn.eval(frame)
+		poses = []
 		if self.tracking:
 			''' we found some poses '''
 			if len(poses):
+				self.no_pose_counter = 0
 				target_pose = None
 				
 				''' we haven't tracked anyone yet'''
@@ -335,60 +337,68 @@ class TelloController(object):
 						self.keep_distance = self.ana.g_shoulders_width
 					
 					target_pose.draw_pose(surf)
-			
-					center_x = int(C_WIDTH/2)
-					center_y = int(C_HEIGHT/2)
 
-					# nose 	= target_pose.has_kp(C_NOSE)
-					neck 	= target_pose.has_kp(C_NOSE)
-					# midhip 	= target_pose.has_kp(C_MIDHIP)
-					
-					if neck:
-						target_kp = neck
-					
-						pygame.draw.circle(surf, C_BLUE, (center_x, center_y), 3)
-						pygame.draw.line(surf, C_GREEN, (center_x, center_y), target_kp.xy, 3)
-					
-						x_offset = center_x - target_kp.xy[0]
-						y_offset = target_kp.xy[1] - center_y
-						
-						self.drone.clockwise(self.pid_yaw(x_offset))
-						self.drone.up(self.pid_throttle(y_offset))
-						
-						if self.ana.g_shoudlers_vert_angle is not None:
-							if self.ana.g_shoudlers_vert_angle<0:
-								shoudlers_vert_angle = 180 + (180 + self.ana.g_shoudlers_vert_angle)
-							else:
-								shoudlers_vert_angle = self.ana.g_shoudlers_vert_angle
-						else:
-							shoudlers_vert_angle = None
+					kp_order = (C_NOSE, C_NECK, C_MIDHIP)
+					for kp_id in kp_order:
+						kp = target_pose.has_kp(kp_id)
+						if kp:
+							target_kp = kp
 							
-						print (shoudlers_vert_angle, self.ana.g_shoudlers_vert_angle)
-						
-						if self.ana.g_shoulders_width and self.keep_distance:
-							d_offset = self.keep_distance - self.ana.g_shoulders_width
-							self.drone.forward(-self.pid_pitch(d_offset))
-						else:
-							self.drone.forward(0)
+							if kp_id == C_NOSE:
+								center_x = int(C_WIDTH*0.5)
+								center_y = int(C_HEIGHT*0.35)
+							elif kp_id == C_NECK:
+								center_x = int(C_WIDTH*0.5)
+								center_y = int(C_HEIGHT*0.5)
+							elif kp_id == C_MIDHIP:
+								center_x = int(C_WIDTH*0.5)
+								center_y = int(C_HEIGHT*0.75)
+							break	
+																			
+					pygame.draw.circle(surf, C_BLUE, (center_x, center_y), 3)
+					pygame.draw.line(surf, C_GREEN, (center_x, center_y), target_kp.xy, 3)
 					
-						if shoudlers_vert_angle is not None:
-							self.drone.right(-self.pid_roll(shoudlers_vert_angle))
-						else:
-							self.drone.right(0)
+					x_offset = center_x - target_kp.xy[0]
+					y_offset = target_kp.xy[1] - center_y
+					
+					self.speed_vect[C_YAW] 		= self.pid_yaw(x_offset) 
+					self.speed_vect[C_THROTTLE] = self.pid_throttle(y_offset)
+					
+					if self.ana.g_shoulders_width and self.keep_distance:		
+						d_offset = self.keep_distance - self.ana.g_shoulders_width
+						# self.speed_vect[C_PITCH] = -self.pid_pitch(d_offset) 
+					else:
+						self.speed_vect[C_PITCH] = 0
+				
+					if self.ana.g_shoulders_vert_angle2 is not None:
+						pass
+						# self.speed_vect[C_ROLL] = -self.pid_roll(self.ana.g_shoulders_vert_angle2)
+					else:
+						self.speed_vect[C_ROLL] = 0
 			else:
-				''' we are tracking but cannot find any pose '''
-				self.stay()
+				print ('no_pose_counter', self.no_pose_counter)
+				self.no_pose_counter += 1
+				if self.no_pose_counter > 40:
+					self.speed_vect[C_PITCH] = 0
+					self.speed_vect[C_THROTTLE] = 0
+			self.exec()
 		else:
 			''' manual control mode '''
 			if len(poses):
 				target_pose = poses[0]
 				target_pose.draw_pose(surf)
 				self.ana.feed(target_pose)
-				print (self.ana.g_shoudlers_vert_angle)
-						
+				print (self.ana.g_shoulders_vert_angle)
+
 	def stay(self):
-		for command in self.commands:
-			command(0)
+		for i in range(4):
+			self.speed_vect[i] = 0
+			
+	def exec(self):
+		self.drone.up(self.speed_vect[C_THROTTLE])
+		self.drone.forward(self.speed_vect[C_PITCH])
+		self.drone.clockwise(self.speed_vect[C_YAW])
+		self.drone.right(self.speed_vect[C_ROLL])
 		
 	def take_picture(self):
 		''' Tell drone to take picture, image sent to file handler '''
@@ -435,8 +445,8 @@ class TelloController(object):
 			
 		if self.tracking:
 			LOG.info("ACTIVATE TRACKING")
-			self.pid_roll 		= PID(2, 0, 0.05, setpoint=180, output_limits=(-100, 100))
-			self.pid_yaw 		= PID(C_YAW_KP, 		C_YAW_KI, 		C_YAW_KD, setpoint=0, output_limits=(-30, 30))
+			self.pid_roll 		= PID(2, 0, 0.05, setpoint=180, output_limits=(-50, 50))
+			self.pid_yaw 		= PID(C_YAW_KP, 		C_YAW_KI, 		C_YAW_KD, setpoint=0, output_limits=(-100, 100))
 			self.pid_pitch		= PID(C_PITCH_KP, 		C_PITCH_KI, 	C_PITCH_KD, setpoint=0, output_limits=(-100, 100))
 			self.pid_throttle 	= PID(C_THROTTLE_KP, 	C_THROTTLE_KI, 	C_THROTTLE_KD, setpoint=0, output_limits=(-100, 100))
 		else:

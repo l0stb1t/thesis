@@ -72,7 +72,7 @@ def init_pygame_window(name='', size=(480,360)):
 	return display
 
 class Pose:
-	# __slots__ = ['keypoints', 'score', 'top', 'bottom', 'center', 'color', 'ttl', '_shoudlers_width']
+	# __slots__ = ['keypoints', 'score', 'top', 'bottom', 'center', 'color', 'ttl', '_shoulders_width']
 
 	def __init__(self, keypoints, score=None):
 		self.keypoints = keypoints
@@ -192,7 +192,9 @@ class Analyzer:
 		
 		self.__g_lhu = None
 		self.__g_rhu = None
-		self.__g_shoudlers_width = None
+		self.__g_shoulders_vert_angle = None
+		self.__g_shoulders_vert_angle2 = None
+		self.__g_shoulders_width = None
 		self.__g_standing = None
 		self.__g_sitting = None
 	
@@ -228,10 +230,14 @@ class Analyzer:
 		return self.__g_sitting
 	
 	@property
+	def g_lying(self):
+		pass
+	
+	@property
 	def g_shoulders_width(self): # return width/None 
-		if self.__g_shoudlers_width is None:
-			self.__g_shoudlers_width = self.distance(C_LSHOULDER, C_RSHOULDER)
-		return self.__g_shoudlers_width
+		if self.__g_shoulders_width is None:
+			self.__g_shoulders_width = self.distance(C_LSHOULDER, C_RSHOULDER)
+		return self.__g_shoulders_width
 	
 	@property
 	def g_lhu(self): # gadget left hand up
@@ -256,9 +262,24 @@ class Analyzer:
 		return self.__g_rhu
 	
 	@property
-	def g_shoudlers_vert_angle(self):
-		return self.vertical_angle(C_LSHOULDER, C_RSHOULDER)
+	def g_shoulders_vert_angle(self):
+		if self.__g_shoulders_vert_angle is None:
+			self.__g_shoulders_vert_angle = self.vertical_angle(C_LSHOULDER, C_RSHOULDER)
+		return self.__g_shoulders_vert_angle
 	
+	@property
+	def g_shoulders_vert_angle2(self):
+		''' convert from -180->180 to 0->360 set point is 180 '''
+		if self.__g_shoulders_vert_angle2 is None:
+			try:
+				if self.g_shoulders_vert_angle<0:
+					self.__g_shoulders_vert_angle2 = 360 + self.g_shoulders_vert_angle
+				else:
+					self.__g_shoulders_vert_angle2 = self.g_shoulders_vert_angle
+			except:
+				pass
+		return self.__g_shoulders_vert_angle2
+		
 	def vertical_angle(self, kp_id1, kp_id2): # calcuate vertical angle between 2 point
 		kp1 = self.pose.has_kp(kp_id1)
 		kp2 = self.pose.has_kp(kp_id2)
