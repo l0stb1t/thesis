@@ -3,8 +3,10 @@ import time
 import pygame
 import random
 import numpy as np
+
 from math_util import *
 from constants import *
+from drone_constants import *
 from contextlib import suppress
 
 ''' all function should accept and return point with (x, y) format '''
@@ -104,15 +106,17 @@ class Pose:
 		if self.color is not None:
 			color = self.color
 			
-		with suppress(KeyError): pygame.draw.circle(surf, color, self.keypoints['left eye'].xy, 3)
-		with suppress(KeyError): pygame.draw.circle(surf, color, self.keypoints['right eye'].xy, 3)
-		with suppress(KeyError): pygame.draw.circle(surf, color, self.keypoints['left ear'].xy, 3)
-		with suppress(KeyError): pygame.draw.circle(surf, color, self.keypoints['right ear'].xy, 3)
+		with suppress(KeyError): pygame.draw.circle(surf, C_BLUE, self.keypoints['left eye'].xy, 3)
+		with suppress(KeyError): pygame.draw.circle(surf, C_GREEN, self.keypoints['right eye'].xy, 3)
+		with suppress(KeyError): pygame.draw.circle(surf, C_BLUE, self.keypoints['left ear'].xy, 3)
+		with suppress(KeyError): pygame.draw.circle(surf, C_GREEN, self.keypoints['right ear'].xy, 3)
 		with suppress(KeyError): pygame.draw.circle(surf, color, self.keypoints['nose'].xy, 3)
 			
 		for pair in C_PAIRS:
-			with suppress(KeyError): pygame.draw.line(surf, color, self.keypoints[C_KP_NAMES[pair[0]]].xy, self.keypoints[C_KP_NAMES[pair[1]]].xy, 3)
-			
+			if len(pair) == 3:
+				with suppress(KeyError): pygame.draw.line(surf, pair[2], self.keypoints[C_KP_NAMES[pair[0]]].xy, self.keypoints[C_KP_NAMES[pair[1]]].xy, 3)
+			else:
+				with suppress(KeyError): pygame.draw.line(surf, color, self.keypoints[C_KP_NAMES[pair[0]]].xy, self.keypoints[C_KP_NAMES[pair[1]]].xy, 3)
 	def get_boundbox(self):		
 		if self.top is None:
 			i = iter(self.keypoints)
@@ -195,8 +199,12 @@ class Analyzer:
 		self.__g_shoulders_vert_angle = None
 		self.__g_shoulders_vert_angle2 = None
 		self.__g_shoulders_width = None
+		self.__g_lshoulder_width = None
+		self.__g_rshoulder_width = None
+		self.__g_rotation = None
 		self.__g_standing = None
 		self.__g_sitting = None
+		self.__g_lying = None
 	
 	def feed(self, pose):
 		self.__init__(pose)
@@ -231,13 +239,47 @@ class Analyzer:
 	
 	@property
 	def g_lying(self):
-		pass
+		if self.__g_lying is None:
+			top, bottom = self.pose.get_boundbox()
+			width = bottom[0] - top[0]
+			height = bottom[1] - top[1]
+			
+			if height/width<=0.5:
+				self.__g_lying = True
+			else:
+				self.__g_lying = False
+		return self.__g_lying 
 	
 	@property
 	def g_shoulders_width(self): # return width/None 
 		if self.__g_shoulders_width is None:
 			self.__g_shoulders_width = self.distance(C_LSHOULDER, C_RSHOULDER)
 		return self.__g_shoulders_width
+	
+	@property
+	def g_lshoulder_width(self):
+		if self.__g_lshoulder_width is None:
+			self.__g_lshoulder_width = self.distance(C_LSHOULDER, C_NECK)
+		return self.__g_lshoulder_width
+		
+	@property
+	def g_rotation(self):
+		if self.__g_rotation is None:
+			d1 = self.distance(C_NOSE, C_LEAR)
+			d2 = self.distance(C_NOSE, C_REAR)
+		
+			if d1 is None:
+				return None
+			if d2 is None:
+				return None
+			self.__g_rotation = (d1-d2)/(d1+d2)
+		return self.__g_rotation
+		
+	@property
+	def g_rshoulder_width(self):
+		if self.__g_rshoulder_width is None:
+			self.__g_rshoulder_width = self.distance(C_RSHOULDER, C_NECK)
+		return self.__g_rshoulder_width	
 	
 	@property
 	def g_lhu(self): # gadget left hand up

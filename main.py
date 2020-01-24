@@ -275,12 +275,18 @@ def renderer_simple_gesture(lock, mp_event):
 			pose.draw_pose(surf)
 			ana = Analyzer(pose)
 			
+			pose.draw_boundbox(surf)
+			top, bottom = pose.get_boundbox()
 			if ana.g_standing:
-				surf.blit(C_STANDING, pose.get_boundbox()[0])
+				surf.blit(C_STANDING, (top+bottom)/2)
 			elif ana.g_sitting:
-				surf.blit(C_SITTING, pose.get_boundbox()[0])
+				surf.blit(C_SITTING, (top+bottom)/2)
+			elif ana.g_lying:
+				surf.blit(C_LYING, (top+bottom)/2)
 			else:
-				surf.blit(C_UNKNOW, pose.get_boundbox()[0])
+				surf.blit(C_UNKNOWN, (top+bottom)/2)
+				
+			pygame.draw.circle(surf, C_RED, (int(appsink_size[0]/2), int(appsink_size[1]/2)), 5)
 			
 			gesture_id = ana.simple_gesture()
 			if gesture_id is not None:
@@ -371,7 +377,15 @@ def main():
 		cap = cv2.VideoCapture(args.cam_id)
 		cap.set(cv2.CAP_PROP_FRAME_WIDTH, src_size[0])
 		cap.set(cv2.CAP_PROP_FRAME_HEIGHT, src_size[1])
-
+		'''
+		default:
+		CAP_PROP_AUTO_EXPOSURE 0(OFF)
+		CAP_PROP_EXPOSURE 1000
+		'''
+		cap.set(cv2.CAP_PROP_EXPOSURE, 1000)
+		cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)
+		print (cap.get(cv2.CAP_PROP_EXPOSURE))
+		print (cap.get(cv2.CAP_PROP_AUTO_EXPOSURE))
 	frame_count = 0
 	start_time = time.time()
 	pose_height = np.zeros(C_MAXPOSE, dtype=np.uint32)
@@ -385,7 +399,7 @@ def main():
 				input_img 			= cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB).astype(np.uint8)
 				# pil_frame 			= Image.fromarray(input_img)
 				
-				# input_img = cv2.GaussianBlur(input_img, (3, 3), cv2.BORDER_DEFAULT)
+				# input_img = cv2.GaussianBlur(input_img, (5, 5), cv2.BORDER_DEFAULT)
 				# opencv ouput frame in (y, x) but use (x, y) point format ¯\_(ツ)_/¯
 				# print (input_img.shape)
 				nposes, pose_scores, kps, kps_score = pose_engine.DetectPosesInImage(input_img)

@@ -59,6 +59,7 @@ def worker(sockfd, lock):
 		
 		try:
 			tello.process_frame(surf, frame)
+			pygame.draw.circle(surf, C_RED, (int(C_WIDTH/2), int(C_HEIGHT/2)), 5)
 		except:
 			tello.stay()
 			traceback.print_exc()
@@ -101,8 +102,8 @@ def main():
 	
 	drone = init_drone()
 	
-	p_recorder = Process(target=recorder)
-	p_recorder.start()
+	# p_recorder = Process(target=recorder)
+	# p_recorder.start()
 	
 	lock 		= mp.Lock()
 	p_worker 	= Process(target=worker, args=(drone.sock.fileno(), lock))
@@ -302,8 +303,8 @@ class TelloController(object):
 			self.keep_distance = None
 			return
 		
-		# poses = self.pn.eval(frame)
-		poses = []
+		poses = self.pn.eval(frame)
+		# poses = []
 		if self.tracking:
 			''' we found some poses '''
 			if len(poses):
@@ -364,17 +365,29 @@ class TelloController(object):
 					self.speed_vect[C_YAW] 		= self.pid_yaw(x_offset) 
 					self.speed_vect[C_THROTTLE] = self.pid_throttle(y_offset)
 					
+					
+					
 					if self.ana.g_shoulders_width and self.keep_distance:		
 						d_offset = self.keep_distance - self.ana.g_shoulders_width
-						# self.speed_vect[C_PITCH] = -self.pid_pitch(d_offset) 
+						self.speed_vect[C_PITCH] = -self.pid_pitch(d_offset) 
 					else:
 						self.speed_vect[C_PITCH] = 0
 				
+					'''
 					if self.ana.g_shoulders_vert_angle2 is not None:
 						pass
 						# self.speed_vect[C_ROLL] = -self.pid_roll(self.ana.g_shoulders_vert_angle2)
 					else:
 						self.speed_vect[C_ROLL] = 0
+					'''
+					
+					if self.ana.g_rotation is not None:
+						rotation = self.ana.g_rotation
+					try:
+						print ('rotation:', rotation)
+						self.speed_vect[C_ROLL] = self.pid_roll(rotation)
+					except:
+						pass
 			else:
 				print ('no_pose_counter', self.no_pose_counter)
 				self.no_pose_counter += 1
@@ -388,13 +401,14 @@ class TelloController(object):
 				target_pose = poses[0]
 				target_pose.draw_pose(surf)
 				self.ana.feed(target_pose)
-				print (self.ana.g_shoulders_vert_angle)
+				# print (self.ana.g_shoulders_vert_angle)
 
 	def stay(self):
 		for i in range(4):
 			self.speed_vect[i] = 0
 			
 	def exec(self):
+		pass
 		self.drone.up(self.speed_vect[C_THROTTLE])
 		self.drone.forward(self.speed_vect[C_PITCH])
 		self.drone.clockwise(self.speed_vect[C_YAW])
@@ -445,10 +459,10 @@ class TelloController(object):
 			
 		if self.tracking:
 			LOG.info("ACTIVATE TRACKING")
-			self.pid_roll 		= PID(2, 0, 0.05, setpoint=180, output_limits=(-50, 50))
-			self.pid_yaw 		= PID(C_YAW_KP, 		C_YAW_KI, 		C_YAW_KD, setpoint=0, output_limits=(-100, 100))
-			self.pid_pitch		= PID(C_PITCH_KP, 		C_PITCH_KI, 	C_PITCH_KD, setpoint=0, output_limits=(-100, 100))
-			self.pid_throttle 	= PID(C_THROTTLE_KP, 	C_THROTTLE_KI, 	C_THROTTLE_KD, setpoint=0, output_limits=(-100, 100))
+			self.pid_roll 		= PID(C_ROLL_KP, 		C_ROLL_KI, 		C_ROLL_KD, 		setpoint=0, output_limits=(-50, 50))
+			self.pid_yaw 		= PID(C_YAW_KP, 		C_YAW_KI, 		C_YAW_KD, 		setpoint=0, output_limits=(-100, 100))
+			self.pid_pitch		= PID(C_PITCH_KP, 		C_PITCH_KI, 	C_PITCH_KD, 	setpoint=0, output_limits=(-100, 100))
+			self.pid_throttle 	= PID(C_THROTTLE_KP, 	C_THROTTLE_KI, 	C_THROTTLE_KD, 	setpoint=0, output_limits=(-100, 100))
 		else:
 			''' tracking turned off we stop the drone '''
 			self.single_tracker.reset()
