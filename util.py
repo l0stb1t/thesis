@@ -6,7 +6,7 @@ import numpy as np
 
 from math_util import *
 from constants import *
-from drone_constants import *
+# from tello_posenetdrone_constants import *
 from contextlib import suppress
 
 ''' all function should accept and return point with (x, y) format '''
@@ -205,6 +205,7 @@ class Analyzer:
 		self.__g_standing = None
 		self.__g_sitting = None
 		self.__g_lying = None
+		self.__frontal_face_boundingbox = None
 	
 	def feed(self, pose):
 		self.__init__(pose)
@@ -236,6 +237,85 @@ class Analyzer:
 					self.__g_sitting = False
 					break
 		return self.__g_sitting
+	
+	@property
+	def g_upper_height(self):
+		lshoulder = self.pose.has_kp(C_LSHOULDER)
+		if not lshoulder:
+			d1=0
+		else:
+			lhip = self.pose.has_kp(C_LHIP)
+			if not lhip:
+				d1=0
+			else:
+				d1 = lhip.xy[1]-lshoulder.xy[1]
+				
+		rshoulder = self.pose.has_kp(C_RSHOULDER)
+		if not rshoulder:
+			d2=0
+		else:
+			rhip = self.pose.has_kp(C_RHIP)
+			if not rhip:
+				d2=0
+			else:
+				d2=rhip.xy[1]-rshoulder.xy[1]
+		r = max(d1, d2)
+		if r <=0:
+			return None
+		return r
+			
+	
+	@property
+	def g_lower_height(self):
+		lhip = self.pose.has_kp(C_LHIP)
+		if not lhip:
+			d1 = 0
+		else:
+			lankle = self.pose.has_kp(C_LANKLE)
+			if not lankle:
+				d1 = 0
+			else:
+				d1 = lankle.xy[1]-lhip.xy[1]
+		
+		rhip = self.pose.has_kp(C_RHIP)
+		if not rhip:
+			d2 = 0
+		else:
+			rankle = self.pose.has_kp(C_RANKLE)
+			if not rankle:
+				d2 = 0
+			else:
+				d2 = rankle.xy[1]-rhip.xy[1]
+		r = max(d1, d2)
+		if r <=0:
+			return None
+		return r
+			
+	@property
+	def g_sitting2(self):
+		d1 = self.g_upper_height
+		d2 = self.g_lower_height
+		
+		if d1==None or d2==None:
+			return None
+		if (d1/d2)>0.8:
+			return True
+		else:
+			return False
+	
+	@property
+	def g_standing2(self):
+		d1 = self.g_upper_height
+		d2 = self.g_lower_height
+		
+		if d1==None or d2==None:
+			return None
+		# print ((d1/d2)*100)
+		if (d1/d2)<=0.8:
+			return True
+		else:
+			return False
+		
 	
 	@property
 	def g_lying(self):
@@ -274,7 +354,21 @@ class Analyzer:
 				return None
 			self.__g_rotation = (d1-d2)/(d1+d2)
 		return self.__g_rotation
+	
+	@property
+	def g_vrotation(self):
+		v1 = self.vertical_angle(C_NOSE, C_LEAR)
+		v2 = self.vertical_angle(C_NOSE, C_REAR)
 		
+		if v1 is None or v2 is None:
+			return None
+		t=v1-v2
+		if t<0:
+			t+=180
+		elif t>0:
+			t-=180
+		return t
+	
 	@property
 	def g_rshoulder_width(self):
 		if self.__g_rshoulder_width is None:
@@ -321,7 +415,34 @@ class Analyzer:
 			except:
 				pass
 		return self.__g_shoulders_vert_angle2
+	
+	def get_frontal_face_boundingbox(self):
+		if self.__frontal_face_boundingbox is None:
+			rotation = self.g_rotation
+			if rotation is None:
+				return None
+			if rotation<-0.5 or rotation>0.5:
+				return None
+			top_x		= self.pose.has_kp(C_REAR).xy[0]
+			bottom_x	= self.pose.has_kp(C_LEAR).xy[0]
+			
+			width=bottom_x-top_x
+			nose = self.pose.has_kp(C_NOSE)
+					
+			top_y 		= nose.xy[1]-width/2
+			bottom_y 	= nose.xy[1]+width/2
+			self.__frontal_face_boundingbox = ((int(top_x), int(top_y)), (int(bottom_x), int(bottom_y)))
+		return self.__frontal_face_boundingbox
 		
+	def draw_frontal_face_boundingbox(self, surf, color=C_GREEN):
+		try:
+			top, bottom = self.get_frontal_face_boundingbox()
+		except:
+			return
+		pygame.draw.circle(surf, C_RED, top, 3)
+		pygame.draw.circle(surf, C_RED, bottom, 3)
+		pygame.draw.rect(surf, color, (top[0], top[1], bottom[0]-top[0], bottom[1]-top[1]), 3) #x, y, width, height
+	
 	def vertical_angle(self, kp_id1, kp_id2): # calcuate vertical angle between 2 point
 		kp1 = self.pose.has_kp(kp_id1)
 		kp2 = self.pose.has_kp(kp_id2)

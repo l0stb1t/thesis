@@ -253,8 +253,9 @@ def renderer_tracker2(lock, mp_event):
 	print ('Tracker2 FPS:', frame_count/(end_time - start_time))
 	pygame.quit()
 
-def renderer_simple_gesture(lock, mp_event):
-	global args, RUNNING
+def renderer_allstar(lock, mp_event, face_event):
+	global args
+	global RUNNING, NFACES, FACE_BOUNDINGBOXES, FACE_FRAMEBUFFER, FACE_RESULTS
 	
 	pygame.init()
 	display = pygame.display.set_mode(appsink_size)
@@ -262,6 +263,14 @@ def renderer_simple_gesture(lock, mp_event):
 	
 	frame_count = 0
 	start_time = time.time()
+	
+	target_pose = None
+	track_id 	= 0
+	tracker 	= SingleTracker()
+	
+	face_result = False
+	wait_result = False
+	
 	while RUNNING:
 		frame_count += 1
 		
@@ -270,27 +279,63 @@ def renderer_simple_gesture(lock, mp_event):
 			mp_event.clear()
 		
 		surf, frame = get_surf(lock)
-		poses = get_pose_shared_data2(lock)
-		for pose in poses:
-			pose.draw_pose(surf)
-			ana = Analyzer(pose)
-			
-			pose.draw_boundbox(surf)
-			top, bottom = pose.get_boundbox()
-			if ana.g_standing:
-				surf.blit(C_STANDING, (top+bottom)/2)
-			elif ana.g_sitting:
-				surf.blit(C_SITTING, (top+bottom)/2)
-			elif ana.g_lying:
-				surf.blit(C_LYING, (top+bottom)/2)
-			else:
-				surf.blit(C_UNKNOWN, (top+bottom)/2)
+		poses 		= get_pose_shared_data2(lock)
+		track_id 	= 0
+		
+		if len(poses):
+			target_pose = None
+			if tracker.first_frame:
+				target_pose = poses[0]
+				tracker.feed(poses, track_id)
+			else:			
+				match_id = tracker.feed(poses)
+				if match_id is not None:
+					target_pose = poses[match_id]
+					
+			if target_pose:
+				ana = Analyzer(target_pose)
+				target_pose.draw_pose(surf)
+				target_pose.draw_boundbox(surf)
+				top, bottom = target_pose.get_boundbox()
 				
-			pygame.draw.circle(surf, C_RED, (int(appsink_size[0]/2), int(appsink_size[1]/2)), 5)
-			
-			gesture_id = ana.simple_gesture()
-			if gesture_id is not None:
-				surf.blit(GESTURE_NAMES[gesture_id], pose.get_boundbox()[0])
+				face_boundingbox = ana.get_frontal_face_boundingbox()
+				if face_result and face_boundingbox is not None:
+					ana.draw_frontal_face_boundingbox(surf)
+					surf.blit(C_DUY, face_boundingbox[0])
+					
+				if face_boundingbox is not None and not face_event.is_set():
+					if wait_result:
+						if FACE_RESULTS[0]:
+							face_result = True
+							wait_result = False
+						else:
+							face_result = False
+							# we are tracking the wrong person
+							print ('reset tracker')
+							tracker.reset()
+							wait_result = False
+							continue
+					
+					# face_recognition boundingbox format :)
+					FACE_BOUNDINGBOXES[0] = (face_boundingbox[0][1], face_boundingbox[1][0], face_boundingbox[1][1], face_boundingbox[0][0]) 
+					NFACES.value = 1
+					
+					FACE_FRAMEBUFFER[:] = np.ctypeslib.as_ctypes(frame)
+					face_event.set()
+					wait_result = True
+				
+				if ana.g_standing2:
+					surf.blit(C_STANDING, (top+bottom)/2)
+				elif ana.g_sitting:
+					surf.blit(C_SITTING, (top+bottom)/2)
+				elif ana.g_lying:
+					surf.blit(C_LYING, (top+bottom)/2)
+				else:
+					surf.blit(C_UNKNOWN, (top+bottom)/2)
+						
+				gesture_id = ana.simple_gesture()
+				if gesture_id is not None:
+					surf.blit(GESTURE_NAMES[gesture_id], target_pose.get_boundbox()[0])
 			
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
@@ -301,7 +346,7 @@ def renderer_simple_gesture(lock, mp_event):
 		pygame.display.update()
 		pygame.time.delay(15)
 	end_time = time.time()
-	print ('renderer_simple_gesture:', frame_count/(end_time - start_time)) 
+	print ('renderer_allstar:', frame_count/(end_time - start_time)) 
 	
 def renderer_pose_only(lock, mp_event):
 	global args, RUNNING
@@ -343,30 +388,68 @@ def renderer_pose_only(lock, mp_event):
 	print ('pose only FPS:', frame_count/(end_time - start_time))
 	pygame.quit()
 
+def face_recognition(face_event):
+	global RUNNING, FACE_FRAMEBUFFER, NFACES, FACE_BOUNDINGBOXES, FACE_RESULTS
+	
+	import face_recognition, pickle
+
+	#target_image = face_recognition.load_image_file('/home/pi/duy.jpg')
+	#known_sig = face_recognition.face_encodings(target_image)[0]
+	with open('/home/pi/duy.sig', 'rb') as f:
+		known_sig = pickle.loads(f.read())
+	print ('sig loaded')
+	
+	while RUNNING.value:
+		face_event.wait()
+		face_frame = np.ctypeslib.as_array(FACE_FRAMEBUFFER).copy()
+		nfaces = NFACES.value
+		face_boundingboxes = []
+		for i in range(nfaces):
+			face_boundingboxes.append(tuple(FACE_BOUNDINGBOXES[i]))
+		
+		encodings = face_recognition.face_encodings(face_frame, known_face_locations=face_boundingboxes)
+		# print (len(encodings))
+		results = face_recognition.compare_faces(encodings, known_sig)
+		print (results)
+		for i in range(NFACES.value):
+			try:
+				FACE_RESULTS[i] = results[i]
+			except:
+				FACE_RESULTS[i] = False
+		face_event.clear()
+		
 def main():
 	global RUNNING, PAUSE
-	global NPOSES, FRAMEBUFFER, KP_BUFFER, KP_SCORE_BUFFER, POSESCORE_BUFFER
+	global NPOSES, FRAMEBUFFER, KP_BUFFER, KP_SCORE_BUFFER, POSESCORE_BUFFER 
+	global NFACES, FACE_BOUNDINGBOXES, FACE_FRAMEBUFFER, FACE_RESULTS
 
 	FRAMEBUFFER 		= sharedctypes.RawValue(ctypes.c_ubyte*3*appsink_size[0]*appsink_size[1])
 	KP_BUFFER			= sharedctypes.RawValue(ctypes.c_int*2*C_NKP*C_MAXPOSE)
 	KP_SCORE_BUFFER		= sharedctypes.RawValue(ctypes.c_double*C_NKP*C_MAXPOSE)
 	POSESCORE_BUFFER	= sharedctypes.RawValue(ctypes.c_double*C_MAXPOSE)
-	HEIGHT_BUFFER		= sharedctypes.RawValue(ctypes.c_uint*C_MAXPOSE)
-	HEIGHT_IDX_BUFFER	= sharedctypes.RawValue(ctypes.c_uint*C_MAXPOSE)
 	
 	NPOSES 				= sharedctypes.RawValue(ctypes.c_ushort)
+	NFACES				= sharedctypes.RawValue(ctypes.c_ushort)
+	FACE_BOUNDINGBOXES	= sharedctypes.RawValue((ctypes.c_ushort*4)*10)
+	FACE_RESULTS		= sharedctypes.RawValue(ctypes.c_bool*10)
+	FACE_FRAMEBUFFER 	= sharedctypes.RawValue(ctypes.c_ubyte*3*appsink_size[0]*appsink_size[1])
+	
 	RUNNING				= sharedctypes.RawValue(ctypes.c_ubyte, 1)
 	PAUSE				= sharedctypes.RawValue(ctypes.c_ubyte, 0)
 
 	lock 		= mp.Lock()
 	mp_event 	= mp.Event()
+	face_event 	= mp.Event()
 	
+	p_face_recognition = mp.Process(target=face_recognition, args=(face_event,))
 	p_renderer_tracker 	= mp.Process(target=renderer_tracker, args=(lock, mp_event))
 	p_renderer_tracker2 = mp.Process(target=renderer_tracker2, args=(lock, mp_event))
 	p_renderer_pose_only = mp.Process(target=renderer_pose_only, args=(lock, mp_event))
-	p_renderer_simple_gesture = mp.Process(target=renderer_simple_gesture, args=(lock, mp_event))
+	p_renderer_allstar = mp.Process(target=renderer_allstar, args=(lock, mp_event, face_event))
 	
-	p_renderer_simple_gesture.start()
+	p_renderer_allstar.start()
+	p_face_recognition.start()
+	
 	# p_renderer_tracker2.start()
 	# p_renderer_tracker.start()
 	# p_renderer_pose_only.start()

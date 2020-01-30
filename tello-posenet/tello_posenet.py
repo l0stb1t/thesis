@@ -16,7 +16,6 @@ from multiprocessing import Process, sharedctypes
 from simple_pid import PID
 from pose_engine import PoseEngine
 
-from CameraMorse import CameraMorse, RollingGraph
 from PN import *
 
 LOG = logging.getLogger("TellPoseNet")
@@ -94,7 +93,7 @@ def init_drone():
 	
 	return drone
 
-def main():
+def main(args):
 	global FRAMEBUFFER, RUNNING
 	
 	RUNNING		= sharedctypes.RawValue(ctypes.c_ubyte, 1)
@@ -513,6 +512,7 @@ class TelloController(object):
 
 if __name__ == '__main__':
 	ap=argparse.ArgumentParser()
+	ap.add_argument('-face', action='store_true')
 	args=ap.parse_args()
-
-	main()
+	print (args)
+	main(args)
