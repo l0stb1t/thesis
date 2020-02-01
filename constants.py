@@ -45,6 +45,7 @@ C_MAXPOSE 			= 10
 C_KP_THRESHOLD 		= 0.05
 C_PSCORE_THRESHOLD 	= 0.3
 
+C_NGESTURE						= 9
 C_RIGHT_ARM_UP_OPEN 			= 0
 C_RIGHT_ARM_UP_CLOSED 			= 1
 C_RIGHT_HAND_ON_LEFT_EAR 		= 2
@@ -83,6 +84,7 @@ C_SITTING = FONT.render('SITTING', False, C_GREEN, None)
 C_LYING = FONT.render('LYING', False, C_GREEN, None)
 C_UNKNOWN = FONT.render('UNKNOWN', False, C_RED, None)
 C_DUY = FONT.render('Duy', False, C_RED, None)
+
 # params for ShiTomasi corner detection
 feature_params = dict(maxCorners = 10,
 					  qualityLevel = 0.2,

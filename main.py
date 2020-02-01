@@ -267,6 +267,7 @@ def renderer_allstar(lock, mp_event, face_event):
 	target_pose = None
 	track_id 	= 0
 	tracker 	= SingleTracker()
+	stream_ana	= StreamAnalyzer()
 	
 	face_result = False
 	wait_result = False
@@ -293,17 +294,19 @@ def renderer_allstar(lock, mp_event, face_event):
 					target_pose = poses[match_id]
 					
 			if target_pose:
-				ana = Analyzer(target_pose)
+				stream_ana.feed(target_pose)
 				target_pose.draw_pose(surf)
 				target_pose.draw_boundbox(surf)
 				top, bottom = target_pose.get_boundbox()
 				
-				face_boundingbox = ana.get_frontal_face_boundingbox()
-				if face_result and face_boundingbox is not None:
-					ana.draw_frontal_face_boundingbox(surf)
-					surf.blit(C_DUY, face_boundingbox[0])
+				# print (stream_ana.ana.g_vrotation)
+				
+				face_boundingbox = stream_ana.ana.get_frontal_face_boundingbox()
+				if face_result:
+					surf.blit(C_DUY, (target_pose.get_boundbox()[1][0], target_pose.get_boundbox()[0][1]))
 					
 				if face_boundingbox is not None and not face_event.is_set():
+					stream_ana.ana.draw_frontal_face_boundingbox(surf)
 					if wait_result:
 						if FACE_RESULTS[0]:
 							face_result = True
@@ -324,6 +327,7 @@ def renderer_allstar(lock, mp_event, face_event):
 					face_event.set()
 					wait_result = True
 				
+				'''
 				if ana.g_standing2:
 					surf.blit(C_STANDING, (top+bottom)/2)
 				elif ana.g_sitting:
@@ -332,8 +336,9 @@ def renderer_allstar(lock, mp_event, face_event):
 					surf.blit(C_LYING, (top+bottom)/2)
 				else:
 					surf.blit(C_UNKNOWN, (top+bottom)/2)
+				'''
 						
-				gesture_id = ana.simple_gesture()
+				gesture_id = stream_ana.ana.simple_gesture()
 				if gesture_id is not None:
 					surf.blit(GESTURE_NAMES[gesture_id], target_pose.get_boundbox()[0])
 			

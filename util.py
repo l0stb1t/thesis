@@ -419,10 +419,13 @@ class Analyzer:
 	def get_frontal_face_boundingbox(self):
 		if self.__frontal_face_boundingbox is None:
 			rotation = self.g_rotation
-			if rotation is None:
+			vrotation = self.g_vrotation
+			if rotation is None or vrotation is None:
 				return None
 			if rotation<-0.5 or rotation>0.5:
 				return None
+			if vrotation<-50 or vrotation>50:
+				return None	
 			top_x		= self.pose.has_kp(C_REAR).xy[0]
 			bottom_x	= self.pose.has_kp(C_LEAR).xy[0]
 			
@@ -535,6 +538,37 @@ class Analyzer:
 						return C_HANDS_ON_NECK
 		return None
 
+''' Analyzer action for a single person '''
+class StreamAnalyzer:
+	def __init__(self):
+		self.first_frame = True
+		self.ana = Analyzer()
+		self.__prev_gesture = None
+		self.__gesture_score = 0
+		self.__gesture_scores = np.zeros(C_NGESTURE, dtype=np.uint8)
+		
+	def feed(self, pose):
+		self.pose = pose
+		self.ana.feed(self.pose)
+		gesture = self.ana.simple_gesture()
+		
+		# if self.first_frame:
+		# 	self.first_frame = False
+		
+		''' inconsistent gesture -> noise '''	
+		if self.__prev_gesture != gesture:
+			self.__gesture_score = 0
+		else:
+			if self.__gesture_score < 10:
+				self.__gesture_score += 1
+		self.__prev_gesture = gesture
+		
+	def simple_gesture(self):
+		if self.__gesture_score >= 10:
+			return self.__gesture
+		else:
+			return None
+			
 ''' This class tries to track every poses in the prev frame '''
 class Tracker:
 	def __init__(self):

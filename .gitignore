@@ -2,3 +2,4 @@
 *.py~
 *.mp4
 *.pyc
+tello-posenet/media/*
