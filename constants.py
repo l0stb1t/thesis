@@ -45,7 +45,7 @@ C_MAXPOSE 			= 10
 C_KP_THRESHOLD 		= 0.05
 C_PSCORE_THRESHOLD 	= 0.3
 
-C_NGESTURE						= 9
+C_NGESTURE						= 10
 C_RIGHT_ARM_UP_OPEN 			= 0
 C_RIGHT_ARM_UP_CLOSED 			= 1
 C_RIGHT_HAND_ON_LEFT_EAR 		= 2
@@ -55,6 +55,7 @@ C_LEFT_HAND_ON_RIGHT_EAR 		= 5
 C_HANDS_ON_EARS 				= 6
 C_CLOSE_HANDS_UP 				= 7
 C_HANDS_ON_NECK 				= 8
+C_NOTSURE						= 9
 
 C_GESTURE_NAMES = [
 	'right arm up open', 'right arm up closed', 'right hand on left ear',
@@ -66,7 +67,7 @@ pygame.font.init()
 FONT = pygame.font.SysFont(None, 20)
 LABELS = [None,]*10
 
-GESTURE_NAMES = [None,] * 9
+GESTURE_NAMES = [None,] * C_NGESTURE
 GESTURE_NAMES[C_RIGHT_ARM_UP_OPEN] 		= FONT.render('RIGHT_ARM_UP_OPEN', False, C_GREEN, None)
 GESTURE_NAMES[C_RIGHT_ARM_UP_CLOSED] 	= FONT.render('RIGHT_ARM_UP_CLOSED', False, C_GREEN, None)
 GESTURE_NAMES[C_RIGHT_HAND_ON_LEFT_EAR] = FONT.render('RIGHT_HAND_ON_LEFT_EAR', False, C_GREEN, None)
@@ -78,6 +79,8 @@ GESTURE_NAMES[C_LEFT_HAND_ON_RIGHT_EAR] = FONT.render('C_LEFT_HAND_ON_RIGHT_EAR'
 GESTURE_NAMES[C_HANDS_ON_EARS] 			= FONT.render('HANDS_ON_EARS', False, C_GREEN, None)
 GESTURE_NAMES[C_CLOSE_HANDS_UP] 		= FONT.render('CLOSE_HANDS_UP', False, C_GREEN, None)
 GESTURE_NAMES[C_HANDS_ON_NECK] 			= FONT.render('HANDS_ON_NECK', False, C_GREEN, None)
+
+GESTURE_NAMES[C_NOTSURE] 				= FONT.render('C_NOTSURE', False, C_GREEN, None)
 
 C_STANDING = FONT.render('STANDING', False, C_GREEN, None)
 C_SITTING = FONT.render('SITTING', False, C_GREEN, None)

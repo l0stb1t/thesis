@@ -5,9 +5,8 @@ from util import *
 from constants import *
 from pose_engine import PoseEngine
 
-class PN:
-	def __init__(self):
-		model = '../models/posenet_mobilenet_v1_075_353_481_quant_decoder_edgetpu.tflite'
+class PoseNet:
+	def __init__(self, model = '../models/posenet_mobilenet_v1_075_353_481_quant_decoder_edgetpu.tflite'):
 		self.engine = PoseEngine(model, mirror=False)
 		
 	def eval(self, frame):

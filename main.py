@@ -6,6 +6,7 @@ import cv2
 import time
 import ctypes
 import pygame
+import logging
 import argparse
 import traceback
 import numpy as np
@@ -17,6 +18,8 @@ from util import *
 
 from edgetpu.detection.engine import DetectionEngine
 from PIL import Image
+
+logging.basicConfig()
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', help='.tflite model path.', required=False)
@@ -253,9 +256,8 @@ def renderer_tracker2(lock, mp_event):
 	print ('Tracker2 FPS:', frame_count/(end_time - start_time))
 	pygame.quit()
 
-def renderer_allstar(lock, mp_event, face_event):
+def renderer_allstar(lock, mp_event):
 	global args
-	global RUNNING, NFACES, FACE_BOUNDINGBOXES, FACE_FRAMEBUFFER, FACE_RESULTS
 	
 	pygame.init()
 	display = pygame.display.set_mode(appsink_size)
@@ -264,14 +266,14 @@ def renderer_allstar(lock, mp_event, face_event):
 	frame_count = 0
 	start_time = time.time()
 	
+	face_result = False
+	
 	target_pose = None
 	track_id 	= 0
 	tracker 	= SingleTracker()
 	stream_ana	= StreamAnalyzer()
-	
-	face_result = False
-	wait_result = False
-	
+	face_recognition = FaceRecognition(log_level=logging.INFO)
+
 	while RUNNING:
 		frame_count += 1
 		
@@ -295,50 +297,38 @@ def renderer_allstar(lock, mp_event, face_event):
 					
 			if target_pose:
 				stream_ana.feed(target_pose)
+				print (stream_ana.ana.g_vrotation)
 				target_pose.draw_pose(surf)
 				target_pose.draw_boundbox(surf)
 				top, bottom = target_pose.get_boundbox()
 				
 				# print (stream_ana.ana.g_vrotation)
-				
 				face_boundingbox = stream_ana.ana.get_frontal_face_boundingbox()
 				if face_result:
 					surf.blit(C_DUY, (target_pose.get_boundbox()[1][0], target_pose.get_boundbox()[0][1]))
-					
-				if face_boundingbox is not None and not face_event.is_set():
-					stream_ana.ana.draw_frontal_face_boundingbox(surf)
-					if wait_result:
-						if FACE_RESULTS[0]:
-							face_result = True
-							wait_result = False
-						else:
-							face_result = False
-							# we are tracking the wrong person
+				
+				if face_recognition.waiting_result:
+					t = face_recognition.has_result()
+					if t is not None:
+						face_result = t[0]
+						if face_result is False:
 							print ('reset tracker')
 							tracker.reset()
-							wait_result = False
-							continue
-					
-					# face_recognition boundingbox format :)
-					FACE_BOUNDINGBOXES[0] = (face_boundingbox[0][1], face_boundingbox[1][0], face_boundingbox[1][1], face_boundingbox[0][0]) 
-					NFACES.value = 1
-					
-					FACE_FRAMEBUFFER[:] = np.ctypeslib.as_ctypes(frame)
-					face_event.set()
-					wait_result = True
+				else:
+					''' we can see the face directly '''	
+					if face_boundingbox is not None:
+						stream_ana.ana.draw_frontal_face_boundingbox(surf)
+						face_recognition.feed([face_boundingbox], frame)
 				
-				'''
-				if ana.g_standing2:
+				if stream_ana.ana.g_standing:
 					surf.blit(C_STANDING, (top+bottom)/2)
-				elif ana.g_sitting:
+				elif stream_ana.ana.g_sitting2:
 					surf.blit(C_SITTING, (top+bottom)/2)
-				elif ana.g_lying:
-					surf.blit(C_LYING, (top+bottom)/2)
 				else:
 					surf.blit(C_UNKNOWN, (top+bottom)/2)
-				'''
+				
 						
-				gesture_id = stream_ana.ana.simple_gesture()
+				gesture_id = stream_ana.simple_gesture()
 				if gesture_id is not None:
 					surf.blit(GESTURE_NAMES[gesture_id], target_pose.get_boundbox()[0])
 			
@@ -346,7 +336,7 @@ def renderer_allstar(lock, mp_event, face_event):
 			if event.type == pygame.QUIT:
 				RUNNING.value = 0
 				break
-				
+
 		display.blit(surf, (0, 0))
 		pygame.display.update()
 		pygame.time.delay(15)
@@ -432,28 +422,30 @@ def main():
 	KP_BUFFER			= sharedctypes.RawValue(ctypes.c_int*2*C_NKP*C_MAXPOSE)
 	KP_SCORE_BUFFER		= sharedctypes.RawValue(ctypes.c_double*C_NKP*C_MAXPOSE)
 	POSESCORE_BUFFER	= sharedctypes.RawValue(ctypes.c_double*C_MAXPOSE)
-	
 	NPOSES 				= sharedctypes.RawValue(ctypes.c_ushort)
+	
+	'''
 	NFACES				= sharedctypes.RawValue(ctypes.c_ushort)
 	FACE_BOUNDINGBOXES	= sharedctypes.RawValue((ctypes.c_ushort*4)*10)
 	FACE_RESULTS		= sharedctypes.RawValue(ctypes.c_bool*10)
 	FACE_FRAMEBUFFER 	= sharedctypes.RawValue(ctypes.c_ubyte*3*appsink_size[0]*appsink_size[1])
+	'''
 	
 	RUNNING				= sharedctypes.RawValue(ctypes.c_ubyte, 1)
 	PAUSE				= sharedctypes.RawValue(ctypes.c_ubyte, 0)
 
 	lock 		= mp.Lock()
 	mp_event 	= mp.Event()
-	face_event 	= mp.Event()
+	# face_event 	= mp.Event()
 	
-	p_face_recognition = mp.Process(target=face_recognition, args=(face_event,))
+	# p_face_recognition = mp.Process(target=face_recognition, args=(face_event,))
 	p_renderer_tracker 	= mp.Process(target=renderer_tracker, args=(lock, mp_event))
 	p_renderer_tracker2 = mp.Process(target=renderer_tracker2, args=(lock, mp_event))
 	p_renderer_pose_only = mp.Process(target=renderer_pose_only, args=(lock, mp_event))
-	p_renderer_allstar = mp.Process(target=renderer_allstar, args=(lock, mp_event, face_event))
+	p_renderer_allstar = mp.Process(target=renderer_allstar, args=(lock, mp_event))
 	
 	p_renderer_allstar.start()
-	p_face_recognition.start()
+	# p_face_recognition.start()
 	
 	# p_renderer_tracker2.start()
 	# p_renderer_tracker.start()
@@ -472,8 +464,8 @@ def main():
 		'''
 		cap.set(cv2.CAP_PROP_EXPOSURE, 1000)
 		cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)
-		print (cap.get(cv2.CAP_PROP_EXPOSURE))
-		print (cap.get(cv2.CAP_PROP_AUTO_EXPOSURE))
+		# print (cap.get(cv2.CAP_PROP_EXPOSURE))
+		# print (cap.get(cv2.CAP_PROP_AUTO_EXPOSURE))
 	frame_count = 0
 	start_time = time.time()
 	pose_height = np.zeros(C_MAXPOSE, dtype=np.uint32)

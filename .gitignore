@@ -3,3 +3,4 @@
 *.mp4
 *.pyc
 tello-posenet/media/*
+__pycache__

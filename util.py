@@ -1,12 +1,16 @@
+import os
 import cv2
 import time
-import pygame
+import signal
+import ctypes
 import random
+import pygame
+import logging
 import numpy as np
+import multiprocessing as mp
 
 from math_util import *
 from constants import *
-# from tello_posenetdrone_constants import *
 from contextlib import suppress
 
 ''' all function should accept and return point with (x, y) format '''
@@ -201,6 +205,7 @@ class Analyzer:
 		self.__g_shoulders_width = None
 		self.__g_lshoulder_width = None
 		self.__g_rshoulder_width = None
+		self.__g_eyes_distance = None
 		self.__g_rotation = None
 		self.__g_standing = None
 		self.__g_sitting = None
@@ -337,6 +342,12 @@ class Analyzer:
 		return self.__g_shoulders_width
 	
 	@property
+	def g_eyes_distance(self):
+		if self.__g_eyes_distance is None:
+			self.__g_eyes_distance = self.distance(C_LEYE, C_REYE)
+		return self.__g_eyes_distance
+			
+	@property
 	def g_lshoulder_width(self):
 		if self.__g_lshoulder_width is None:
 			self.__g_lshoulder_width = self.distance(C_LSHOULDER, C_NECK)
@@ -433,6 +444,9 @@ class Analyzer:
 			nose = self.pose.has_kp(C_NOSE)
 					
 			top_y 		= nose.xy[1]-width/2
+			''' upper part of face is occluded '''
+			if top_y<0:
+				return None
 			bottom_y 	= nose.xy[1]+width/2
 			self.__frontal_face_boundingbox = ((int(top_x), int(top_y)), (int(bottom_x), int(bottom_y)))
 		return self.__frontal_face_boundingbox
@@ -533,7 +547,7 @@ class Analyzer:
 				lwrist = self.pose.has_kp(C_LWRIST)
 				rwrist = self.pose.has_kp(C_RWRIST)
 				if neck and self.g_shoulders_width and lwrist and rwrist:
-					near_dist = self.g_shoulders_width/4
+					near_dist = self.g_shoulders_width/2
 					if distance(rwrist.xy, neck.xy)<near_dist and distance(lwrist.xy, neck.xy)<near_dist :
 						return C_HANDS_ON_NECK
 		return None
@@ -545,7 +559,6 @@ class StreamAnalyzer:
 		self.ana = Analyzer()
 		self.__prev_gesture = None
 		self.__gesture_score = 0
-		self.__gesture_scores = np.zeros(C_NGESTURE, dtype=np.uint8)
 		
 	def feed(self, pose):
 		self.pose = pose
@@ -565,9 +578,9 @@ class StreamAnalyzer:
 		
 	def simple_gesture(self):
 		if self.__gesture_score >= 10:
-			return self.__gesture
+			return self.__prev_gesture
 		else:
-			return None
+			return C_NOTSURE
 			
 ''' This class tries to track every poses in the prev frame '''
 class Tracker:
@@ -716,9 +729,82 @@ class FPS: # To measure the number of frame per second
 		text = FONT.render('FPS: %f' % self.get(), False, color, None)
 		surf.blit(text, (0, 0))
 
-class HUD:
-	def __init__(self, color=C_GREEN):
-		pass
+''' doing face recognitionn in a seperate process '''
+class FaceRecognition:
+	def __init__(self, face_signature_path='/home/pi/duy.sig', log_level=logging.ERROR):
+		''' this event will be passed to the child process '''
+		self.__event = mp.Event()
+		self.__face_signature_path = face_signature_path
 		
-	def whatever(self):
-		pass
+		self.__running 			= mp.sharedctypes.RawValue(ctypes.c_ubyte, 1)
+		self.__face_count		= mp.sharedctypes.RawValue(ctypes.c_ushort)
+		self.__boundingboxes	= mp.sharedctypes.RawValue((ctypes.c_ushort*4)*10)
+		self.__results			= mp.sharedctypes.RawValue(ctypes.c_bool*10)
+		self.__face_framebuffer = mp.sharedctypes.RawValue(ctypes.c_ubyte*3*480*360)
+		self.__waiting_result 	= False
+		
+		self.logger = logging.getLogger('FaceRecognition')
+		self.logger.setLevel(log_level)
+		
+		self.__worker = mp.Process(target=self.face_recognition_worker)
+		self.__worker.start()
+	
+	@property
+	def waiting_result(self):
+		return self.__waiting_result
+	
+	def has_result(self):
+		''' if haven't fed data in or worker is working '''
+		if not self.__waiting_result:
+			raise Exception('FaceRecognition, call feed first') 
+		if self.__event.is_set():
+			return None
+		
+		r = []
+		for i in range(self.__face_count.value):
+			r.append(self.__results[i])
+		self.__waiting_result = False
+		return r
+	
+	def stop(self):
+		os.kill(self.__worker.pid, signal.SIG_KILL)
+	
+	''' return True if worker is not busy, false otherwise '''
+	def feed(self, boundingboxes, frame):
+		if not self.waiting_result:
+			self.__face_count.value = len(boundingboxes)
+			for i in range(self.__face_count.value):
+				boundingbox = boundingboxes[i]
+				self.__boundingboxes[i] = (boundingbox[0][1], boundingbox[1][0], boundingbox[1][1], boundingbox[0][0])
+			self.__face_framebuffer[:] = np.ctypeslib.as_ctypes(frame)
+			self.__waiting_result = True
+			self.__event.set()
+			return True
+		return False
+	
+	def face_recognition_worker(self):
+		import face_recognition, pickle
+
+		with open(self.__face_signature_path, 'rb') as f:
+			known_sig = pickle.loads(f.read())
+		self.logger.info('face signature loaded')
+		
+		while True:
+			if not self.__event.wait(timeout=2):
+				continue
+			face_frame = np.ctypeslib.as_array(self.__face_framebuffer).copy()
+			nfaces = self.__face_count.value
+			face_boundingboxes = []
+			for i in range(nfaces):
+				face_boundingboxes.append(tuple(self.__boundingboxes[i]))
+			
+			encodings = face_recognition.face_encodings(face_frame, known_face_locations=face_boundingboxes)
+			results = face_recognition.compare_faces(encodings, known_sig)
+			self.logger.debug('face recognition result:', results)
+			for i in range(nfaces):
+				try:
+					self.__results[i] = results[i]
+				except:
+					self.__results[i] = False
+			self.__event.clear()
+		

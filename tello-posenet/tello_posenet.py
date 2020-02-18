@@ -33,34 +33,78 @@ def get_surf(lock):
     return surf, frame
 
 def recorder():
+	global args
 	global FRAMEBUFFER, RUNNING
 	
 	fourcc = cv2.VideoWriter_fourcc(*'XVID')
-	writer = cv2.VideoWriter('/home/pi/exfat/record.avi', fourcc, 20, (480, 360))
-	while RUNNING:
-		frame = np.ctypeslib.as_array(FRAMEBUFFER).copy()
-		frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-		writer.write(frame)
+	try:
+		writer = cv2.VideoWriter(args.record, fourcc, 20, (480, 360))
+		while RUNNING:
+			frame = np.ctypeslib.as_array(FRAMEBUFFER).copy()
+			frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+			writer.write(frame)
+	except:
+		traceback.print_exc()
 
-def worker(sockfd, lock):
+def face_recognition(face_event):
+	global RUNNING, FACE_FRAMEBUFFER, NFACES, FACE_BOUNDINGBOXES, FACE_RESULTS
+	
+	import face_recognition, pickle
+
+	#target_image = face_recognition.load_image_file('/home/pi/duy.jpg')
+	#known_sig = face_recognition.face_encodings(target_image)[0]
+	with open('/home/pi/duy.sig', 'rb') as f:
+		known_sig = pickle.loads(f.read())
+	print ('sig loaded')
+	
+	while RUNNING.value:
+		face_event.wait()
+		face_frame = np.ctypeslib.as_array(FACE_FRAMEBUFFER).copy()
+		nfaces = NFACES.value
+		face_boundingboxes = []
+		for i in range(nfaces):
+			face_boundingboxes.append(tuple(FACE_BOUNDINGBOXES[i]))
+		
+		encodings = face_recognition.face_encodings(face_frame, known_face_locations=face_boundingboxes)
+		# print (len(encodings))
+		results = face_recognition.compare_faces(encodings, known_sig)
+		print (results)
+		for i in range(NFACES.value):
+			try:
+				FACE_RESULTS[i] = results[i]
+			except:
+				FACE_RESULTS[i] = False
+		face_event.clear()
+
+def worker(sockfd, lock, face_event):
 	global FRAMEBUFFER, RUNNING
 	
 	display = init_pygame_window('tello')
 	drone 	= tellopy.Tello(sockfd=sockfd, no_video_thread=True)
 	drone.connect()
-	tello = TelloController(drone)
+	autopilot = AutoPilot(drone, face_event)
+	
+	fps = FPS()
+	posenet = PoseNet()
 	
 	while RUNNING:
 		surf, frame = get_surf(lock)
 		
-		tello.fps.update()
-		tello.fps.display(surf)
+		fps.update()
+		fps.display(surf)
+		
+		poses = posenet.eval(frame)
 		
 		try:
-			tello.process_frame(surf, frame)
-			pygame.draw.circle(surf, C_RED, (int(C_WIDTH/2), int(C_HEIGHT/2)), 5)
+			''' if a key is pressed we ignore everything '''
+			if autopilot.handle_keyboard():
+				autopilot.keep_distance = None
+			else:
+				autopilot.process_frame(surf, frame, poses)
 		except:
-			tello.stay()
+			''' fail safe '''
+			autopilot.stay()
+			autopilot.exec()
 			traceback.print_exc()
 			RUNNING.value = 0
 			break
@@ -79,8 +123,8 @@ def worker(sockfd, lock):
 				key_pressed.append(event.key)
 			elif event.type == pygame.KEYUP:
 				key_released.append(event.key)
-		tello.key_pressed  = key_pressed
-		tello.key_released = key_released
+		autopilot.key_pressed  = key_pressed
+		autopilot.key_released = key_released
 	pygame.quit()
 
 def init_drone():
@@ -93,20 +137,32 @@ def init_drone():
 	
 	return drone
 
-def main(args):
+def main():
 	global FRAMEBUFFER, RUNNING
+	global NFACES, FACE_BOUNDINGBOXES, FACE_RESULTS, FACE_FRAMEBUFFER
 	
 	RUNNING		= sharedctypes.RawValue(ctypes.c_ubyte, 1)
 	FRAMEBUFFER = sharedctypes.RawValue(ctypes.c_ubyte*3*480*360)
 	
+	NFACES				= sharedctypes.RawValue(ctypes.c_ushort)
+	FACE_BOUNDINGBOXES	= sharedctypes.RawValue((ctypes.c_ushort*4)*10)
+	FACE_RESULTS		= sharedctypes.RawValue(ctypes.c_bool*10)
+	FACE_FRAMEBUFFER 	= sharedctypes.RawValue(ctypes.c_ubyte*3*480*360)
+	
 	drone = init_drone()
 	
-	# p_recorder = Process(target=recorder)
-	# p_recorder.start()
+	if args.record:
+		p_recorder = Process(target=recorder)
+		p_recorder.start()
 	
+	face_event 	= mp.Event()
 	lock 		= mp.Lock()
-	p_worker 	= Process(target=worker, args=(drone.sock.fileno(), lock))
+	p_worker 	= Process(target=worker, args=(drone.sock.fileno(), lock, face_event))
 	p_worker.start()
+	
+	if args.face:
+		p_face_recognition = mp.Process(target=face_recognition, args=(face_event,))
+		p_face_recognition.start()
 	
 	container = av.open(drone.get_video_stream())
 	frame_skip = 350
@@ -134,13 +190,13 @@ def main(args):
 		frame_skip = int((time.time() - start_time)/time_base)
 	print ('VideoReceiver FPS:', fps.get())
 	
-class TelloController(object):
+class AutoPilot():
 	'''TelloController builds keyboard controls on top of TelloPy as well as generating images from the video stream and enabling opencv support'''
 
-	def __init__(self, drone, media_directory='media'):			
+	def __init__(self, drone, face_event, media_directory='media'):			
 		self.drone 			= drone
 		self.debug 			= False
-				
+		
 		# Flight data
 		self.is_flying 		 = False
 		self.battery 		 = None
@@ -156,16 +212,18 @@ class TelloController(object):
 		self.drone.subscribe(self.drone.EVENT_FILE_RECEIVED, 	self.handle_flight_received)
 		
 		self.init_controls()
-		
-		# Setup PoseNet
-		self.pn = PN()
+				
 		#self.tracker = Tracker()
 		self.single_tracker = SingleTracker()
-		
-		self.ana = Analyzer()
-		
-		self.fps 		= FPS()
+		self.stream_ana = StreamAnalyzer()
 		self.exposure 	= 0
+		
+		self.face_result = False
+		self.wait_result = False
+		self.face_fail_count = 0
+		self.face_event = face_event
+		
+		self.gesture_command = True
 		
 		self.reset()
 		self.media_directory = media_directory
@@ -296,14 +354,7 @@ class TelloController(object):
 			# first frame
 			return False
 				
-	def process_frame(self, surf, frame):
-		''' if a key is pressed we ignore everything '''
-		if self.handle_keyboard():
-			self.keep_distance = None
-			return
-		
-		poses = self.pn.eval(frame)
-		# poses = []
+	def process_frame(self, surf, frame, poses):		
 		if self.tracking:
 			''' we found some poses '''
 			if len(poses):
@@ -324,20 +375,56 @@ class TelloController(object):
 						target_pose = poses[match_idx]
 				
 				if target_pose:
-					self.ana.feed(target_pose)
-					gesture = self.ana.simple_gesture()
-					
-					if gesture == C_CLOSE_HANDS_UP:
-						print ('C_CLOSE_HANDS_UP')
-						self.exit()
-					#if gesture == C_RIGHT_ARM_UP_CLOSED:
-					# 	self.toggle_tracking()
-					
-					if (self.single_tracker.first_frame or self.keep_distance is None) and self.ana.g_shoulders_width:
-						self.keep_distance = self.ana.g_shoulders_width
-					
 					target_pose.draw_pose(surf)
-
+					self.stream_ana.feed(target_pose)
+					gesture = self.stream_ana.simple_gesture()
+					
+					if self.face_result:
+						surf.blit(C_DUY, (target_pose.get_boundbox()[1][0], target_pose.get_boundbox()[0][1]))
+					
+					face_boundingbox = self.stream_ana.ana.get_frontal_face_boundingbox()
+					if face_boundingbox is not None and not self.face_event.is_set():
+						self.stream_ana.ana.draw_frontal_face_boundingbox(surf)
+						if self.wait_result:
+							if FACE_RESULTS[0]:
+								self.face_fail_count = 0
+								self.face_result = True
+								self.wait_result = False
+							else:
+								self.face_result = False
+								self.face_fail_count += 1
+								if self.face_fail_count == 5:
+									# we are tracking the wrong person
+									print ('reset tracker')
+									self.single_tracker.reset()
+									self.wait_result = False
+									self.face_fail_count = 0
+									return
+						
+						# face_recognition boundingbox format :)
+						FACE_BOUNDINGBOXES[0] = (face_boundingbox[0][1], face_boundingbox[1][0], face_boundingbox[1][1], face_boundingbox[0][0]) 
+						NFACES.value = 1
+						
+						FACE_FRAMEBUFFER[:] = np.ctypeslib.as_ctypes(frame)
+						self.face_event.set()
+						self.wait_result = True
+					print (gesture)
+					if self.gesture_command:
+						if gesture == C_CLOSE_HANDS_UP:
+							print ('C_CLOSE_HANDS_UP')
+							self.stay()
+							self.exit()
+						elif gesture == C_HANDS_ON_NECK:
+							print ('C_HANDS_ON_NECK')
+							self.take_picture()
+						self.gesture_command = False
+					else:
+						if gesture is None:
+							self.gesture_command = True
+					
+					if (self.single_tracker.first_frame or self.keep_distance is None) and self.stream_ana.ana.g_shoulders_width:
+						self.keep_distance = self.stream_ana.ana.g_shoulders_width
+					
 					kp_order = (C_NOSE, C_NECK, C_MIDHIP)
 					for kp_id in kp_order:
 						kp = target_pose.has_kp(kp_id)
@@ -364,26 +451,15 @@ class TelloController(object):
 					self.speed_vect[C_YAW] 		= self.pid_yaw(x_offset) 
 					self.speed_vect[C_THROTTLE] = self.pid_throttle(y_offset)
 					
-					
-					
-					if self.ana.g_shoulders_width and self.keep_distance:		
-						d_offset = self.keep_distance - self.ana.g_shoulders_width
+					if self.stream_ana.ana.g_shoulders_width and self.keep_distance:		
+						d_offset = self.keep_distance - self.stream_ana.ana.g_shoulders_width
 						self.speed_vect[C_PITCH] = -self.pid_pitch(d_offset) 
 					else:
 						self.speed_vect[C_PITCH] = 0
-				
-					'''
-					if self.ana.g_shoulders_vert_angle2 is not None:
-						pass
-						# self.speed_vect[C_ROLL] = -self.pid_roll(self.ana.g_shoulders_vert_angle2)
-					else:
-						self.speed_vect[C_ROLL] = 0
-					'''
 					
-					if self.ana.g_rotation is not None:
-						rotation = self.ana.g_rotation
+					if self.stream_ana.ana.g_rotation is not None:
+						rotation = self.stream_ana.ana.g_rotation
 					try:
-						print ('rotation:', rotation)
 						self.speed_vect[C_ROLL] = self.pid_roll(rotation)
 					except:
 						pass
@@ -391,16 +467,17 @@ class TelloController(object):
 				print ('no_pose_counter', self.no_pose_counter)
 				self.no_pose_counter += 1
 				if self.no_pose_counter > 40:
-					self.speed_vect[C_PITCH] = 0
-					self.speed_vect[C_THROTTLE] = 0
+					self.stay()
+					# self.speed_vect[C_PITCH] = 0
+					# self.speed_vect[C_THROTTLE] = 0
 			self.exec()
 		else:
 			''' manual control mode '''
 			if len(poses):
 				target_pose = poses[0]
 				target_pose.draw_pose(surf)
-				self.ana.feed(target_pose)
-				# print (self.ana.g_shoulders_vert_angle)
+				# self.stream_ana.feed(target_pose)
+				# print (self.stream_ana.ana.g_shoulders_vert_angle)
 
 	def stay(self):
 		for i in range(4):
@@ -511,8 +588,10 @@ class TelloController(object):
 		LOG.info('Saved photo to %s' % path)
 
 if __name__ == '__main__':
+	global args
+	
 	ap=argparse.ArgumentParser()
 	ap.add_argument('-face', action='store_true')
+	ap.add_argument('-record', type=str, help='video output path')
 	args=ap.parse_args()
-	print (args)
-	main(args)
+	main()
