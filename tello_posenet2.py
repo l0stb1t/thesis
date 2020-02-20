@@ -452,6 +452,7 @@ class AutoPilot():
 		if self.use_face_recognition:
 			self.face_recognition = FaceRecognition()
 		self.found_right_person = False
+		self.false_count = 0
 		
 		self.state = C_STATE_SEARCHING
 		self.logger = logging.getLogger('AutoPilot')
@@ -490,15 +491,15 @@ class AutoPilot():
 			if kp:
 				target_kp = kp
 				if kp_id == C_NOSE:
-					self.logger.debug('Found C_NOSE')
+					# self.logger.debug('Found C_NOSE')
 					center_x = int(C_WIDTH*0.5)
 					center_y = int(C_HEIGHT*0.35)
 				elif kp_id == C_NECK:
-					self.logger.debug('Found C_NECK')
+					# self.logger.debug('Found C_NECK')
 					center_x = int(C_WIDTH*0.5)
 					center_y = int(C_HEIGHT*0.5)
 				elif kp_id == C_MIDHIP:
-					self.logger.debug('Found C_MIDHIP')
+					# self.logger.debug('Found C_MIDHIP')
 					center_x = int(C_WIDTH*0.5)
 					center_y = int(C_HEIGHT*0.75)
 				break
@@ -522,7 +523,7 @@ class AutoPilot():
 			rotation = self.stream_ana.ana.g_rotation
 		
 		yaw_speed = self.pid_yaw(x_offset)
-		self.logger.debug('yaw speed: %d' % yaw_speed)
+		# self.logger.debug('yaw speed: %d' % yaw_speed)
 		self.controller.yaw(yaw_speed)
 		
 		if rotation is not None:
@@ -534,7 +535,7 @@ class AutoPilot():
 		
 		if d_offset is not None:
 			pitch_speed = -self.pid_pitch(d_offset)
-			self.logger.debug('pitch speed: %d' % pitch_speed)
+			# self.logger.debug('pitch speed: %d' % pitch_speed)
 			self.controller.pitch(pitch_speed)
 		else: 
 			self.controller.pitch(0)
@@ -566,11 +567,14 @@ class AutoPilot():
 				if self.face_recognition.waiting_result:
 					result = self.face_recognition.has_result()
 					if result is not None:
+						print (result)
 						if result[0] is False:
+							self.logger.debug('wrong person')
 							self.found_right_person = False
 							self.reset()
 							self.controller.spin(30)
 						else:
+							self.logger.debug('right person')
 							self.found_right_person = True
 							self.logger.debug('C_STATE_FOLLOWING')
 							self.state = C_STATE_FOLLOWING
@@ -618,9 +622,12 @@ class AutoPilot():
 					result = self.face_recognition.has_result()
 					if result is not None:
 						if result[0] is False:
-							self.logger.debug('wrong person C_STATE_SEARCHING')
-							self.reset()
-							return
+							self.false_count += 1
+							self.logger.debug('false_count: %d' % self.false_count) 
+							if (self.false_count == 10):
+								self.logger.debug('wrong person C_STATE_SEARCHING')
+								self.reset()
+								return
 				else:
 					face_boundingbox = self.stream_ana.ana.get_frontal_face_boundingbox()
 					if face_boundingbox is not None:
@@ -688,6 +695,7 @@ class AutoPilot():
 		self.tracker.reset()
 		self.keep_distance = None
 		self.found_right_person = False
+		self.false_count = 0
 		self.state = C_STATE_SEARCHING
 		self.controller.stay()
 

@@ -5,6 +5,7 @@ import pdb
 import cv2
 import time
 import ctypes
+import random
 import pygame
 import logging
 import argparse
@@ -269,10 +270,9 @@ def renderer_allstar(lock, mp_event):
 	face_result = False
 	
 	target_pose = None
-	track_id 	= 0
 	tracker 	= SingleTracker()
 	stream_ana	= StreamAnalyzer()
-	face_recognition = FaceRecognition(log_level=logging.INFO)
+	face_recognition = FaceRecognition()
 
 	while RUNNING:
 		frame_count += 1
@@ -288,8 +288,9 @@ def renderer_allstar(lock, mp_event):
 		if len(poses):
 			target_pose = None
 			if tracker.first_frame:
-				target_pose = poses[0]
-				tracker.feed(poses, track_id)
+				idx = random.randint(0, len(poses)-1)
+				target_pose = poses[idx]
+				tracker.feed(poses, idx)
 			else:			
 				match_id = tracker.feed(poses)
 				if match_id is not None:
@@ -297,7 +298,6 @@ def renderer_allstar(lock, mp_event):
 					
 			if target_pose:
 				stream_ana.feed(target_pose)
-				print (stream_ana.ana.g_vrotation)
 				target_pose.draw_pose(surf)
 				target_pose.draw_boundbox(surf)
 				top, bottom = target_pose.get_boundbox()

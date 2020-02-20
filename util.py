@@ -435,7 +435,7 @@ class Analyzer:
 				return None
 			if rotation<-0.5 or rotation>0.5:
 				return None
-			if vrotation<-50 or vrotation>50:
+			if vrotation<-40 or vrotation>40:
 				return None	
 			top_x		= self.pose.has_kp(C_REAR).xy[0]
 			bottom_x	= self.pose.has_kp(C_LEAR).xy[0]
@@ -731,7 +731,7 @@ class FPS: # To measure the number of frame per second
 
 ''' doing face recognitionn in a seperate process '''
 class FaceRecognition:
-	def __init__(self, face_signature_path='/home/pi/duy.sig', log_level=logging.ERROR):
+	def __init__(self, face_signature_path='/home/pi/duy.sig', log_level=logging.DEBUG):
 		''' this event will be passed to the child process '''
 		self.__event = mp.Event()
 		self.__face_signature_path = face_signature_path
@@ -799,8 +799,8 @@ class FaceRecognition:
 				face_boundingboxes.append(tuple(self.__boundingboxes[i]))
 			
 			encodings = face_recognition.face_encodings(face_frame, known_face_locations=face_boundingboxes)
-			results = face_recognition.compare_faces(encodings, known_sig)
-			self.logger.debug('face recognition result:', results)
+			results = face_recognition.compare_faces(encodings, known_sig, tolerance=0.4)
+			self.logger.debug('face recognition result %s' % repr(results))
 			for i in range(nfaces):
 				try:
 					self.__results[i] = results[i]
