@@ -29,7 +29,7 @@ parser.add_argument('--mirror', help='flip video horizontally', action='store_tr
 parser.add_argument('--res', help='Resolution', default='480x360', choices=['480x360', '640x480', '1280x720'])
 parser.add_argument('--file', type=str, default=None, help="Optionally use a video file instead of a live camera")
 parser.add_argument('--ifile', type=str, default=None, help="Optionally use an image file instead of a live camera")
-parser.add_argument('--interact', type=int, default=0)
+parser.add_argument('--evaluation', type=str, default=0)
 
 
 args = parser.parse_args()
@@ -257,7 +257,85 @@ def renderer_tracker2(lock, mp_event):
 	print ('Tracker2 FPS:', frame_count/(end_time - start_time))
 	pygame.quit()
 
-def renderer_allstar(lock, mp_event):
+def face_recognition_evaluation(lock, mp_event, mp_event2):
+	global args
+	
+	pygame.init()
+	display = pygame.display.set_mode(appsink_size)
+	pygame.display.set_caption('face_recognition_evaluation')
+	
+	frame_count = 0
+	start_time = time.time()
+	face_result = False
+	
+	target_pose = None
+	stream_ana	= StreamAnalyzer()
+	face_recognition = FaceRecognition()
+	
+	while RUNNING:
+		print (frame_count)
+		if args.evaluation:
+			mp_event.wait()
+			mp_event.clear()
+			
+		surf, frame = get_surf(lock)
+		mp_event2.set()
+		poses 		= get_pose_shared_data2(lock)
+		track_id 	= 0
+		if len(poses):
+			target_pose = poses[0]
+					
+			if target_pose:
+				stream_ana.feed(target_pose)
+				target_pose.draw_pose(surf)
+				target_pose.draw_boundbox(surf)
+				top, bottom = target_pose.get_boundbox()
+				
+				# print (stream_ana.ana.g_vrotation)
+				face_boundingbox = stream_ana.ana.get_frontal_face_boundingbox()
+				if face_result:
+					surf.blit(C_DUY, (target_pose.get_boundbox()[1][0], target_pose.get_boundbox()[0][1]))
+				
+				if face_recognition.waiting_result:
+					t = face_recognition.has_result()
+					if t is not None:
+						face_results.append(t[0])
+						face_result = t[0]
+						if face_result is False:
+							tracker.reset()
+							
+				''' we can see the face directly '''	
+				if face_boundingbox is not None:
+					has_face = True
+					stream_ana.ana.draw_frontal_face_boundingbox(surf)
+					face_recognition.feed([face_boundingbox], frame)
+		
+					t = face_recognition.has_result()
+					while t == None:
+						pygame.time.delay(500)
+						t = face_recognition.has_result()
+				else:
+					print ('NA')
+			
+		for event in pygame.event.get():
+			if event.type == pygame.QUIT:
+				RUNNING.value = 0
+				break
+
+		display.blit(surf, (0, 0))
+		if args.evaluation:			
+			pass
+			# pygame.image.save(surf, os.path.join(args.evaluation, 'result', fname))
+		
+		frame_count += 1				
+		pygame.display.update()
+		pygame.time.delay(15)
+	end_time = time.time()
+	# print (frame_count)
+	# print ('face_recognition_evaluation:', frame_count/(end_time - start_time))	
+
+
+def renderer_allstar(lock, mp_event, mp_event2):
 	global args
 	
 	pygame.init()
@@ -274,18 +352,24 @@ def renderer_allstar(lock, mp_event):
 	stream_ana	= StreamAnalyzer()
 	face_recognition = FaceRecognition()
 
+	if args.evaluation:
+		if not os.path.exists(os.path.join(args.evaluation, 'result')):
+			os.mkdir(os.path.join(args.evaluation, 'result'))
+			
+		scores = [0]*10
+	face_count = 0
+	face_results = []
 	while RUNNING:
-		frame_count += 1
-		
-		if args.interact:
+		if args.evaluation:
 			mp_event.wait()
 			mp_event.clear()
-		
+			
 		surf, frame = get_surf(lock)
+		mp_event2.set()
 		poses 		= get_pose_shared_data2(lock)
 		track_id 	= 0
-		
 		if len(poses):
+			has_face = False
 			target_pose = None
 			if tracker.first_frame:
 				idx = random.randint(0, len(poses)-1)
@@ -302,7 +386,6 @@ def renderer_allstar(lock, mp_event):
 				target_pose.draw_boundbox(surf)
 				top, bottom = target_pose.get_boundbox()
 				
-				# print (stream_ana.ana.g_vrotation)
 				face_boundingbox = stream_ana.ana.get_frontal_face_boundingbox()
 				if face_result:
 					surf.blit(C_DUY, (target_pose.get_boundbox()[1][0], target_pose.get_boundbox()[0][1]))
@@ -310,13 +393,14 @@ def renderer_allstar(lock, mp_event):
 				if face_recognition.waiting_result:
 					t = face_recognition.has_result()
 					if t is not None:
+						face_results.append(t[0])
 						face_result = t[0]
 						if face_result is False:
-							print ('reset tracker')
 							tracker.reset()
 				else:
 					''' we can see the face directly '''	
-					if face_boundingbox is not None:
+					if face_boundingbox is not None and stream_ana.ana.g_eyes_distance>=25:
+						has_face = True
 						stream_ana.ana.draw_frontal_face_boundingbox(surf)
 						face_recognition.feed([face_boundingbox], frame)
 				
@@ -326,11 +410,10 @@ def renderer_allstar(lock, mp_event):
 					surf.blit(C_SITTING, (top+bottom)/2)
 				else:
 					surf.blit(C_UNKNOWN, (top+bottom)/2)
-				
-						
-				gesture_id = stream_ana.simple_gesture()
+					
+				gesture_id = stream_ana.ana.simple_gesture()
 				if gesture_id is not None:
-					surf.blit(GESTURE_NAMES[gesture_id], target_pose.get_boundbox()[0])
+					surf.blit(GESTURE_NAMES[gesture_id], target_pose.get_boundbox()[0])			
 			
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
@@ -338,10 +421,35 @@ def renderer_allstar(lock, mp_event):
 				break
 
 		display.blit(surf, (0, 0))
+		if args.evaluation:
+			if gesture_id is not None:
+				scores[gesture_id] += 1
+				fname = '%d_%d' % (frame_count, gesture_id)
+			else:
+				fname = '%d_9' % frame_count
+				scores[9] += 1
+			
+			if has_face:
+				fname += '_f%d.jpg' % face_count
+				face_count += 1
+			else:
+				fname += '.jpg'
+				
+			pygame.image.save(surf, os.path.join(args.evaluation, 'result', fname))
+		frame_count += 1
+		if args.evaluation:
+			if (frame_count == 1000):
+				f = open(os.path.join(args.evaluation, 'result', 'score.txt'), 'w')
+				f.write(repr(scores) + '\n')
+				
+				for i in range(len(face_results)):
+					f.write(str(i) + ' ' + str(face_results[i]) + '\n')
+				f.close()
+				
 		pygame.display.update()
 		pygame.time.delay(15)
 	end_time = time.time()
-	print ('renderer_allstar:', frame_count/(end_time - start_time)) 
+	print ('renderer_allstar:', frame_count/(end_time - start_time))
 	
 def renderer_pose_only(lock, mp_event):
 	global args, RUNNING
@@ -436,14 +544,16 @@ def main():
 
 	lock 		= mp.Lock()
 	mp_event 	= mp.Event()
+	mp_event2 	= mp.Event()
 	# face_event 	= mp.Event()
 	
 	# p_face_recognition = mp.Process(target=face_recognition, args=(face_event,))
 	p_renderer_tracker 	= mp.Process(target=renderer_tracker, args=(lock, mp_event))
 	p_renderer_tracker2 = mp.Process(target=renderer_tracker2, args=(lock, mp_event))
 	p_renderer_pose_only = mp.Process(target=renderer_pose_only, args=(lock, mp_event))
-	p_renderer_allstar = mp.Process(target=renderer_allstar, args=(lock, mp_event))
-	
+	p_renderer_allstar = mp.Process(target=renderer_allstar, args=(lock, mp_event, mp_event2))
+	p_face_recognition_evaluation = mp.Process(target=face_recognition_evaluation, args=(lock, mp_event, mp_event2))
+	# p_face_recognition_evaluation.start()
 	p_renderer_allstar.start()
 	# p_face_recognition.start()
 	
@@ -453,6 +563,12 @@ def main():
 
 	if args.file is not None:
 		cap = cv2.VideoCapture(args.file)
+	elif args.evaluation:
+		inputs = []
+		for f in os.listdir(args.evaluation):
+			if f.endswith('.jpg'):
+				inputs.append(f)
+				# print (len(inputs))
 	else:
 		cap = cv2.VideoCapture(args.cam_id)
 		cap.set(cv2.CAP_PROP_FRAME_WIDTH, src_size[0])
@@ -472,13 +588,18 @@ def main():
 	while RUNNING:
 		if not PAUSE:			
 			try:
-				frame_count += 1
 				# t1 = time.time()
-				cap_res, cap_frame 	= cap.read()
-				input_img 			= cv2.resize(cap_frame, appsink_size, cv2.INTER_NEAREST)
-				input_img 			= cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB).astype(np.uint8)
-				# pil_frame 			= Image.fromarray(input_img)
-				
+				if args.evaluation:
+					try:
+						input_img = cv2.imread(os.path.join(args.evaluation, inputs[frame_count]))
+					except:
+						break
+				else:
+					cap_res, cap_frame = cap.read()
+					input_img = cv2.resize(cap_frame, appsink_size, cv2.INTER_NEAREST)
+				frame_count += 1
+				input_img = cv2.cvtColor(input_img, cv2.COLOR_BGR2RGB).astype(np.uint8)
+				# pil_frame = Image.fromarray(input_img)
 				# input_img = cv2.GaussianBlur(input_img, (5, 5), cv2.BORDER_DEFAULT)
 				# opencv ouput frame in (y, x) but use (x, y) point format ¯\_(ツ)_/¯
 				# print (input_img.shape)
@@ -497,14 +618,15 @@ def main():
 					POSESCORE_BUFFER[:] 		= np.ctypeslib.as_ctypes(pose_scores)						
 				lock.release()
 				
-				if args.interact:
-					input('')
+				if args.evaluation:
 					mp_event.set()
+					mp_event2.wait()
+					mp_event2.clear()
 			except:
 				traceback.print_exc()
 				RUNNING.value = 0
 				break
-
+	RUNNING.value = 0
 	end_time = time.time()
 	print ('Posenet FPS:', frame_count/(end_time - start_time))
 

@@ -433,7 +433,7 @@ class Analyzer:
 			vrotation = self.g_vrotation
 			if rotation is None or vrotation is None:
 				return None
-			if rotation<-0.5 or rotation>0.5:
+			if rotation<-0.3 or rotation>0.3:
 				return None
 			if vrotation<-40 or vrotation>40:
 				return None	
@@ -515,7 +515,7 @@ class Analyzer:
 				# Check if both hands are on the ears
 				ear_dist = self.distance(C_REAR, C_LEAR)
 				if ear_dist:
-					if self.distance(C_RWRIST, C_REAR)<ear_dist/3 and self.distance(C_LWRIST,C_LEAR)<ear_dist/3:
+					if self.distance(C_RWRIST, C_REAR)<ear_dist and self.distance(C_LWRIST,C_LEAR)<ear_dist:
 						return C_HANDS_ON_EARS
 				# Check if boths hands are closed to each other and above nose
 				nose = self.pose.has_kp(C_NOSE)
@@ -731,9 +731,11 @@ class FPS: # To measure the number of frame per second
 
 ''' doing face recognitionn in a seperate process '''
 class FaceRecognition:
-	def __init__(self, face_signature_path='/home/pi/duy.sig', log_level=logging.DEBUG):
+	def __init__(self, face_signature_path='/home/pi/duy2-2.sig', log_level=logging.ERROR):
 		''' this event will be passed to the child process '''
 		self.__event = mp.Event()
+		self.__ready_event = mp.Event()
+		
 		self.__face_signature_path = face_signature_path
 		
 		self.__running 			= mp.sharedctypes.RawValue(ctypes.c_ubyte, 1)
@@ -748,6 +750,8 @@ class FaceRecognition:
 		
 		self.__worker = mp.Process(target=self.face_recognition_worker)
 		self.__worker.start()
+		
+		self.__ready_event.wait()
 	
 	@property
 	def waiting_result(self):
@@ -782,13 +786,13 @@ class FaceRecognition:
 			return True
 		return False
 	
-	def face_recognition_worker(self):
+	def face_recognition_worker2(self):
 		import face_recognition, pickle
 
 		with open(self.__face_signature_path, 'rb') as f:
 			known_sig = pickle.loads(f.read())
 		self.logger.info('face signature loaded')
-		
+		self.__ready_event.set()
 		while True:
 			if not self.__event.wait(timeout=2):
 				continue
@@ -798,7 +802,37 @@ class FaceRecognition:
 			for i in range(nfaces):
 				face_boundingboxes.append(tuple(self.__boundingboxes[i]))
 			
-			encodings = face_recognition.face_encodings(face_frame, known_face_locations=face_boundingboxes)
+			encodings = face_recognition.face_encodings(face_frame, known_face_locations=face_boundingboxes, num_jitters=2)
+			# results = face_recognition.compare_faces(encodings, known_sig, tolerance=0.4)
+			
+			distances = face_recognition.face_distance(encodings, known_sig)
+			for i in range(nfaces):
+				try:
+					if (distances[i] < 0.4):
+						self.__results[i] = True
+					else:
+						self.__results[i] = False
+				except:
+					self.__results[i] = False
+			self.__event.clear()
+	
+	def face_recognition_worker(self):
+		import face_recognition, pickle
+
+		with open(self.__face_signature_path, 'rb') as f:
+			known_sig = pickle.loads(f.read())
+		self.logger.info('face signature loaded')
+		self.__ready_event.set()
+		while True:
+			if not self.__event.wait(timeout=2):
+				continue
+			face_frame = np.ctypeslib.as_array(self.__face_framebuffer).copy()
+			nfaces = self.__face_count.value
+			face_boundingboxes = []
+			for i in range(nfaces):
+				face_boundingboxes.append(tuple(self.__boundingboxes[i]))
+			
+			encodings = face_recognition.face_encodings(face_frame, known_face_locations=face_boundingboxes, num_jitters=2)
 			results = face_recognition.compare_faces(encodings, known_sig, tolerance=0.4)
 			self.logger.debug('face recognition result %s' % repr(results))
 			for i in range(nfaces):
